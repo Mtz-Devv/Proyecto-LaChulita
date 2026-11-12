@@ -9,7 +9,7 @@ export const date = (iso: string) =>
 export const minutesAgov= (iso: string) =>
 `hace ${Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000))} min`
 
-export function errorMesage(error: unknown): string {
+export function errorMessage(error: unknown): string {
 if (isAxiosError(error)) {
 
    if (!error.response) return 'No hay conexion con el servidor'
