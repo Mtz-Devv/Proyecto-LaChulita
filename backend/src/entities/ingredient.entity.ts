@@ -10,7 +10,7 @@ export class Ingredient extends Base {
     @Column({ type: 'varchar', length: 100, unique: true })
     name: string;
 
-    @Column({ type: 'enum', enum: ['ml', 'pz', 'g'] })
+    @Column({ type: 'enum', enum: ['ml', 'pza', 'g'] })
     unit: Unit;
 
     @Column({ ...DECIMAL, default: 0 })
