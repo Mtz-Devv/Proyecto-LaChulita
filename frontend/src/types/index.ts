@@ -12,21 +12,22 @@ export interface Category {
     products_count?: number
 }
 
-export interface PaymentMethod { id: number; name: string}
+export interface PaymentMethod { id: number; name: string }
 
 export interface Supplier {
     id: number; name: string; contact_name: string | null
-    phone: string | null; emmail: string | null 
+    phone: string | null; email: string | null
 }
 
 export interface IngredientSupplier {
     id: number; ingredient_id: number; supplier_id: number
     price: number | null
+    supplier?: Supplier
 }
 
 export interface Ingredient {
     id: number; name: string; unit: 'ml' | 'pza' | 'g'
-    stock: number; min_stock: number; costo: number
+    stock: number; min_stock: number; cost: number
     suppliers?: IngredientSupplier[]
 }
 
@@ -34,6 +35,13 @@ export interface ProductIngredient {
     id: number; product_id: number; ingredient_id: number
     quantity: number
     ingredient?: Ingredient
+}
+
+export interface Product {
+    id: number; name: string; description: string | null
+    price: number; is_active: boolean; category_id: number
+    category?: Category
+    recipe?: ProductIngredient[]
 }
 
 export interface BarTable {
@@ -45,7 +53,7 @@ export interface OrderItem {
     id: number; order_id: number; product_id: number; quantity: number
     unit_price: number; line_total: number; status: 'pendiente' | 'listo'
     notes: string | null; created_at: string
-    product?: ProductIngredient; order?: Order
+    product?: Product; order?: Order
 }
 
 export interface Order {
@@ -58,13 +66,13 @@ export interface Order {
 }
 
 export interface PurchaseItem {
-    id: number;  ingredient_id: number; quantity: number
+    id: number; ingredient_id: number; quantity: number
     unit_cost: number; line_total: number
     ingredient?: Ingredient
 }
 
 export interface Purchase {
-    id: number; supplie_id: number; user_id: number; total: number; created_at: string
+    id: number; supplier_id: number; user_id: number; total: number; created_at: string
     supplier?: Supplier; user?: User; items?: PurchaseItem[]; items_count?: number
 }
 
@@ -72,7 +80,7 @@ export interface InventoryMovement {
     id: number; ingredient_id: number; user_id: number
     type: 'entrada' | 'salida' | 'ajuste'; quantity: number
     reason: string | null; created_at: string
-    indregient?: Ingredient; user?: User
+    ingredient?: Ingredient; user?: User
 }
 
 export interface Paginated<T> {
