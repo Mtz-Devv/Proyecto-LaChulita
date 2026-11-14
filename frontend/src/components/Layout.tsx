@@ -5,18 +5,18 @@ import type { RoleName } from '../types'
 
 
 const links: { to: string; label: string; roles: RoleName[] }[] = [
-   { to: '/', label: 'Reporte del dia', roles: ['admin'] },
+   { to: '/', label: 'Reporte del día', roles: ['admin'] },
    { to: '/mesas', label: 'Mesas', roles: ['admin', 'mesero'] },
    { to: '/cuentas', label: 'Cuentas', roles: ['admin', 'mesero'] },
    { to: '/barra', label: 'Barra', roles: ['admin', 'cantinero'] },
    { to: '/insumos', label: 'Insumos', roles: ['admin', 'cantinero'] },
-   { to: '/productos', label: 'Menu y recetas', roles: ['admin'] },
-   { to: '/categorias', label: 'Categorias', roles: ['admin'] },
+   { to: '/productos', label: 'Menú y recetas', roles: ['admin'] },
+   { to: '/categorias', label: 'Categorías', roles: ['admin'] },
    { to: '/proveedores', label: 'Proveedores', roles: ['admin'] },
    { to: '/compras', label: 'Compras', roles: ['admin'] },
-   { to: '/moviminetos', label: 'Bitacora', roles: ['admin'] },
+   { to: '/movimientos', label: 'Bitácora', roles: ['admin'] },
    { to: '/admin/mesas', label: 'Administrar mesas', roles: ['admin'] },
-   { to: '/metodos-pago', label: 'Metodos de pago', roles: ['admin'] },
+   { to: '/metodos-pago', label: 'Métodos de pago', roles: ['admin'] },
    { to: '/usuarios', label: 'Usuarios', roles: ['admin'] },
 ]
 
