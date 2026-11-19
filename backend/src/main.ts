@@ -18,14 +18,14 @@ async function bootstrap() {
   //Todas las rutas empiezan con /api, asi @Get('categories') queda en /api/categories
   app.setGlobalPrefix('api');
 
-  //Deja entrar al front aunque corra en otro puerto u otra laptop en la red local (configurable via CORS_ORIGIN en .env)
+  //Deja entrar al front en local (localhost) y desde otra laptop en red local (configurable via CORS_ORIGIN en .env)
   const corsOrigin = process.env.CORS_ORIGIN?.trim();
   app.enableCors({
     origin: !corsOrigin || corsOrigin === '*'
       ? true
       : corsOrigin.split(',').map((item) => item.trim()),
+    credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
   //Revisa cada @Body() contra su DTO antes de llegar al controlador, si algo esta mal responde 422

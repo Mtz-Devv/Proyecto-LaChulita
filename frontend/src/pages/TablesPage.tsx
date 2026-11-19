@@ -11,7 +11,8 @@ export default function TablesPage() {
   const [reload, setReload] = useState(0)
 
   useEffect(() => {
-    api.get<BarTable[]>('/bar-tables')
+    api
+      .get<BarTable[]>('/bar-tables')
       .then((res) => setTables(res.data))
       .catch((err) => setError(errorMessage(err)))
   }, [reload])
@@ -32,10 +33,15 @@ export default function TablesPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Mesas</h1>
-        <button className="btn-secondary" onClick={() => setReload((r) => r + 1)}>Actualizar</button>
+        <div>
+          <h1 className="font-brand text-3xl font-extrabold text-stone-900">Mesas</h1>
+          <p className="text-sm text-stone-500">Selecciona una mesa para abrir o gestionar su cuenta</p>
+        </div>
+        <button className="btn-secondary" onClick={() => setReload((r) => r + 1)}>
+          ↻ Actualizar
+        </button>
       </div>
       {error && <p className="error-box">{error}</p>}
 
@@ -46,15 +52,38 @@ export default function TablesPage() {
             <button
               key={t.id}
               onClick={() => handleClick(t)}
-              className={`card border-2 text-left transition hover:shadow-md ${
-                busy ? 'border-amber-400' : 'border-green-400'
+              className={`group rounded-2xl border-2 p-5 text-left shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md ${
+                busy
+                  ? 'border-amber-400 bg-gradient-to-br from-amber-50 to-orange-50/70'
+                  : 'border-emerald-300 bg-gradient-to-br from-white to-emerald-50/50'
               }`}
             >
-              <p className="text-sm text-gray-500">Mesa</p>
-              <p className="text-4xl font-bold">{t.number}</p>
-              <p className="text-sm text-gray-500">{t.capacity} personas</p>
-              <p className={`mt-2 text-sm font-semibold ${busy ? 'text-amber-600' : 'text-green-600'}`}>
-                {busy ? `Ocupada · ${money(t.current_order?.total)}` : 'Libre'}
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+                  Mesa
+                </span>
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ${
+                    busy
+                      ? 'bg-amber-200/80 text-amber-900'
+                      : 'bg-emerald-100 text-emerald-800'
+                  }`}
+                >
+                  {busy ? 'Ocupada' : 'Libre'}
+                </span>
+              </div>
+              <p className="mt-1 text-4xl font-extrabold text-stone-900 group-hover:text-amber-800">
+                #{t.number}
+              </p>
+              <p className="mt-1 text-xs font-medium text-stone-500">
+                Capacidad: {t.capacity} personas
+              </p>
+              <p
+                className={`mt-3 text-sm font-bold ${
+                  busy ? 'text-amber-700' : 'text-emerald-700'
+                }`}
+              >
+                {busy ? `Total: ${money(t.current_order?.total)}` : 'Disponible para abrir →'}
               </p>
             </button>
           )

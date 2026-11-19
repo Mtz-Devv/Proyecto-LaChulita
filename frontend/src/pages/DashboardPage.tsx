@@ -21,41 +21,66 @@ export default function DashboardPage() {
     api.get<DashboardData>('/dashboard').then((res) => setData(res.data))
   }, [])
 
-  if (!data) return <p className="text-gray-500">Cargando…</p>
+  if (!data) return <p className="text-stone-500">Cargando reporte…</p>
 
   const cards = [
-    { label: 'Vendido hoy', value: money(data.sales_today) },
-    { label: 'Propinas de hoy', value: money(data.tips_today) },
-    { label: 'Cuentas cobradas', value: data.orders_today },
-    { label: 'Mesas ocupadas', value: `${data.busy_tables} de ${data.total_tables}` },
+    { label: 'Vendido hoy', value: money(data.sales_today), accent: 'border-t-amber-500', icon: '💰' },
+    { label: 'Propinas de hoy', value: money(data.tips_today), accent: 'border-t-emerald-500', icon: '✨' },
+    { label: 'Cuentas cobradas', value: data.orders_today, accent: 'border-t-orange-500', icon: '🧾' },
+    {
+      label: 'Mesas ocupadas',
+      value: `${data.busy_tables} de ${data.total_tables}`,
+      accent: 'border-t-stone-700',
+      icon: '🪑',
+    },
   ]
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Reporte del día</h1>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h1 className="font-brand text-3xl font-extrabold text-stone-900">Reporte del día</h1>
+          <p className="text-sm text-stone-500">Resumen en tiempo real de La Chulita</p>
+        </div>
+        <span className="rounded-full border border-amber-300 bg-amber-50 px-3.5 py-1.5 text-xs font-semibold text-amber-900">
+          Cuentas abiertas ahora: {data.open_orders}
+        </span>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {cards.map((c) => (
-          <div key={c.label} className="card">
-            <p className="text-sm text-gray-500">{c.label}</p>
-            <p className="mt-1 text-2xl font-bold">{c.value}</p>
+          <div key={c.label} className={`card border-t-4 ${c.accent} transition-transform hover:-translate-y-0.5`}>
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">{c.label}</p>
+              <span className="text-lg">{c.icon}</span>
+            </div>
+            <p className="mt-2 text-2xl font-extrabold text-stone-900">{c.value}</p>
           </div>
         ))}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-5 lg:grid-cols-2">
         <div className="card">
-          <h2 className="mb-3 font-semibold">Lo más vendido hoy</h2>
+          <h2 className="mb-4 text-lg font-bold text-stone-800">🏆 Lo más vendido hoy</h2>
           {data.top_products.length === 0 ? (
-            <p className="text-sm text-gray-500">Todavía no hay cuentas cobradas hoy.</p>
+            <p className="rounded-xl bg-stone-50 p-4 text-sm text-stone-500">
+              Todavía no hay cuentas cobradas hoy.
+            </p>
           ) : (
             <table className="w-full">
+              <thead>
+                <tr>
+                  <th className="th">Producto</th>
+                  <th className="th text-right">Cantidad</th>
+                  <th className="th text-right">Total</th>
+                </tr>
+              </thead>
               <tbody>
                 {data.top_products.map((t) => (
                   <tr key={t.product_id}>
-                    <td className="td">{t.product?.name}</td>
+                    <td className="td font-medium text-stone-900">{t.product?.name}</td>
                     <td className="td text-right">{t.qty} vendidos</td>
-                    <td className="td text-right font-medium">{money(t.amount)}</td>
+                    <td className="td text-right font-bold text-amber-700">{money(t.amount)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -64,17 +89,28 @@ export default function DashboardPage() {
         </div>
 
         <div className="card">
-          <h2 className="mb-3 font-semibold">Insumos por agotarse</h2>
+          <h2 className="mb-4 text-lg font-bold text-stone-800">⚠️ Insumos por agotarse</h2>
           {data.low_ingredients.length === 0 ? (
-            <p className="text-sm text-gray-500">Todos los insumos están arriba de su mínimo.</p>
+            <p className="rounded-xl bg-emerald-50 p-4 text-sm font-medium text-emerald-800">
+              Todos los insumos están arriba de su mínimo.
+            </p>
           ) : (
             <table className="w-full">
+              <thead>
+                <tr>
+                  <th className="th">Insumo</th>
+                  <th className="th text-right">Actual</th>
+                  <th className="th text-right">Mínimo</th>
+                </tr>
+              </thead>
               <tbody>
                 {data.low_ingredients.map((i) => (
                   <tr key={i.id}>
-                    <td className="td">{i.name}</td>
-                    <td className="td text-right font-bold text-red-600">{i.stock} {i.unit}</td>
-                    <td className="td text-right text-gray-500">mín. {i.min_stock}</td>
+                    <td className="td font-medium text-stone-900">{i.name}</td>
+                    <td className="td text-right font-bold text-rose-600">
+                      {i.stock} {i.unit}
+                    </td>
+                    <td className="td text-right text-stone-500">mín. {i.min_stock}</td>
                   </tr>
                 ))}
               </tbody>
@@ -82,8 +118,6 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
-
-      <p className="text-sm text-gray-500">Cuentas abiertas en este momento: {data.open_orders}</p>
     </div>
   )
 }
