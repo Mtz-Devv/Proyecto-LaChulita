@@ -25,7 +25,7 @@ export class OrderItem extends Base {
     status: 'pendiente' | 'listo';
 
     @Column({ type: 'varchar', length: 100, nullable: true })
-    note: string | null;
+    notes: string | null; //"sin hielo", "doble", lo que pida el cliente
 
     @ManyToOne(() => Order, (order) => order.items, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'order_id' })

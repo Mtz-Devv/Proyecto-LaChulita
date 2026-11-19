@@ -1,7 +1,7 @@
 import { CreateDateColumn, PrimaryGeneratedColumn, UpdateDateColumn, type ValueTransformer } from 'typeorm';
 
 export type Rolename = 'admin' | 'mesero' | 'cantinero';
-export type Unit = 'ml' | 'pz' | 'g';
+export type Unit = 'ml' | 'pza' | 'g';
 
 /*
 Se pide una disculpa de antemano por la aberracion que esta a punto de presenciar su apreciable vista, de parte de Chemo's Inc. esperamos que

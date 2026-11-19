@@ -55,6 +55,7 @@ export class Order extends Base {
     @OneToMany(() => OrderItem, (item) => item.order)
     items: OrderItem[];
 
-    items_cont_count?: number; //No es una columna, es un campo que se puede usar para contar la cantidad de items que tiene una orden, ponte vrgas chiavito
+    items_count?: number; //No es una columna, lo llena el listado de cuentas con cuantos renglones tiene, ponte vrgas chiavito
+
 }
 

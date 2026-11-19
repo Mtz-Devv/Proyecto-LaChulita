@@ -8,6 +8,10 @@ export class BarTable extends Base {
     @Column({ type: 'int', unique: true })
     number: number;
 
+    //Cuantas personas caben en la mesa
+    @Column({ type: 'int', default: 4 })
+    capacity: number;
+
     @Column({ type: 'enum', enum: ['libre', 'ocupada'], default: 'libre' })
     status: 'libre' | 'ocupada';
 

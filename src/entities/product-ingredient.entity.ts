@@ -17,7 +17,7 @@ export class ProductIngredient extends Base {
     quantity: number;
 
     //Muchas filas de la receta pueden apuntar al mismo producto, y muchas filas de la receta pueden apuntar al mismo ingrediente, pero no se puede repetir la misma combinacion de producto e ingrediente en una misma receta
-    @ManyToOne(() => Product, (product) => product.recipes, { onDelete: 'RESTRICT' })
+    @ManyToOne(() => Product, (product) => product.recipe, { onDelete: 'CASCADE' }) //Si se borra el producto su receta se va con el, no tiene sentido una receta sin producto
     @JoinColumn({ name: 'product_id' })
     product: Relation<Product>;
 

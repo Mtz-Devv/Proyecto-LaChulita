@@ -28,6 +28,6 @@ export class Product extends Base {
 
     //Relacion muchos a muchos con ingredientes (que ingredientes lleva el producto y en que cantidad)
     @OneToMany(() => ProductIngredient, (line) => line.product)
-    recipes: ProductIngredient[];
+    recipe: ProductIngredient[];
 }
 
