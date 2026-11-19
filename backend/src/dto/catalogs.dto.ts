@@ -12,25 +12,18 @@ import {
 } from 'class-validator';
 import { emptyToNull } from '../common.js';
 
-/*
-DTOs de los catalogos: la forma y las reglas de lo que manda el front, si no las cumple ni entra al controlador chiavito
-*/
-
-//Categorias
 export class CategoryDto {
     @IsString()
     @IsNotEmpty()
     @MaxLength(100)
     name: string;
 
-    //Si el front la manda vacia se guarda como null
     @Transform(emptyToNull)
     @IsOptional()
     @IsString()
     description?: string | null;
 }
 
-//Metodos de pago
 export class PaymentMethodDto {
     @IsString()
     @IsNotEmpty()
@@ -38,7 +31,6 @@ export class PaymentMethodDto {
     name: string;
 }
 
-//Proveedores
 export class SupplierDto {
     @IsString()
     @IsNotEmpty()
@@ -57,27 +49,23 @@ export class SupplierDto {
     @MaxLength(20)
     phone?: string | null;
 
-    //El emptyToNull va primero para que un correo vacio no truene en el @IsEmail
     @Transform(emptyToNull)
     @IsOptional()
     @IsEmail()
     email?: string | null;
 }
 
-//Mesas
 export class BarTableDto {
     @IsInt()
     @Min(1)
     number: number;
 
-    //De 1 a 30 personas, mas que eso ya es salon de fiestas chiavito
     @IsInt()
     @Min(1)
     @Max(30)
     capacity: number;
 }
 
-//Usuarios
 export class UserDto {
     @IsString()
     @IsNotEmpty()
@@ -87,7 +75,6 @@ export class UserDto {
     @IsEmail()
     email: string;
 
-    //Al crear es obligatoria, al editar si viene vacia no se cambia, ponte vrgas
     @Transform(emptyToNull)
     @IsOptional()
     @IsString()
@@ -97,4 +84,3 @@ export class UserDto {
     @IsInt()
     role_id: number;
 }
-

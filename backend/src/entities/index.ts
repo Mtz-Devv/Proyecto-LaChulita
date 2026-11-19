@@ -31,7 +31,6 @@ export * from './purchase.entity.js';
 export * from './purchase-item.entity.js';
 export * from './inventory-movement.entity.js';
 
-//Lista que usa app.module para iniciar el sistema chiavito
 export const entities = [
     Role,
     User,

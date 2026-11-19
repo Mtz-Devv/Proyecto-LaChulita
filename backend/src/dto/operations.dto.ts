@@ -13,28 +13,20 @@ import {
 } from 'class-validator';
 import { emptyToNull } from '../common.js';
 
-/*
-DTOs de la operacion del bar: cuentas, cobros y compras a proveedores
-*/
-
-//Abrir una cuenta en una mesa libre
 export class OpenOrderDto {
     @IsInt()
     bar_table_id: number;
 }
 
-//Agregar un producto a la cuenta
 export class AddItemDto {
     @IsInt()
     product_id: number;
 
-    //Mas de 50 de golpe ya es sospechoso chiavito
     @IsInt()
     @Min(1)
     @Max(50)
     quantity: number;
 
-    //"sin hielo", "doble", lo que pida el cliente, si viene vacia se guarda como null chiavito
     @Transform(emptyToNull)
     @IsOptional()
     @IsString()
@@ -42,19 +34,16 @@ export class AddItemDto {
     notes?: string | null;
 }
 
-//Cobrar la cuenta
 export class CloseOrderDto {
     @IsInt()
     payment_method_id: number;
 
-    //La propina es opcional, pero nmms no seas codo
     @IsOptional()
     @IsNumber()
     @Min(0)
     tip?: number;
 }
 
-//Un renglon de la compra al proveedor
 export class PurchaseLineDto {
     @IsInt()
     ingredient_id: number;
@@ -68,7 +57,6 @@ export class PurchaseLineDto {
     unit_cost: number;
 }
 
-//La compra completa, minimo debe traer un renglon
 export class PurchaseDto {
     @IsInt()
     supplier_id: number;
@@ -79,4 +67,3 @@ export class PurchaseDto {
     @Type(() => PurchaseLineDto)
     items: PurchaseLineDto[];
 }
-

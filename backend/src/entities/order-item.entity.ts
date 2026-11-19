@@ -3,7 +3,6 @@ import { Base, DECIMAL } from './common.entity.js';
 import { Order } from './order.entity.js';
 import { Product } from './product.entity.js';
 
-//Items de la orden (productos que se pidieron)
 @Entity('order_items')
 export class OrderItem extends Base {
     @Column({ type: 'int' })
@@ -25,7 +24,7 @@ export class OrderItem extends Base {
     status: 'pendiente' | 'listo';
 
     @Column({ type: 'varchar', length: 100, nullable: true })
-    notes: string | null; //"sin hielo", "doble", lo que pida el cliente
+    notes: string | null;
 
     @ManyToOne(() => Order, (order) => order.items, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'order_id' })
@@ -35,4 +34,3 @@ export class OrderItem extends Base {
     @JoinColumn({ name: 'product_id' })
     product: Relation<Product>;
 }
-

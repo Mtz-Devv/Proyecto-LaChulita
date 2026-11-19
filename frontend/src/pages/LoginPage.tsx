@@ -31,7 +31,7 @@ export default function LoginPage() {
       className="relative flex min-h-screen flex-col items-center justify-end bg-stone-950 bg-cover bg-center p-4 pb-10 sm:justify-center sm:pb-6"
       style={{ backgroundImage: "url('/login-bg.jpg')" }}
     >
-      {/* Velo cálido sutil para legibilidad sin tapar a los enanos ni el letrero */}
+
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-stone-950/30 via-stone-950/45 to-stone-950/80" />
 
       <div className="relative z-10 mt-28 w-full max-w-md sm:mt-36">

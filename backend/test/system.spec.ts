@@ -82,7 +82,6 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
   let mesero2User: User;
   let cantineroUser: User;
 
-  // Base de datos en memoria con soporte transaccional y bloqueo pesimista simulado (FOR UPDATE)
   const db = {
     roles: [
       { id: 1, name: 'admin' as const },
@@ -184,7 +183,6 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
     >,
   };
 
-  // Mutex que emula la cola de bloqueo pesimista SELECT ... FOR UPDATE en MySQL
   let txLock = Promise.resolve();
   const runSerialized = async <T>(fn: () => Promise<T>): Promise<T> => {
     const prev = txLock;
@@ -757,7 +755,6 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
     });
   });
 
-  // Helper para simular el ExecutionContext de NestJS en Guards
   const makeContext = (
     controllerClass: object,
     handlerName: string,
@@ -773,25 +770,19 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
     } as unknown as ExecutionContext;
   };
 
-  // =========================================================================
-  // 1. PRUEBAS DE SEGURIDAD (AUTENTICACIÓN, RBAC, IDOR, SANITIZACIÓN)
-  // =========================================================================
   describe('1. Seguridad (Auth, RBAC, IDOR, Validación y Sanitización)', () => {
     it('valida firma JWT, rechaza tokens de usuarios inexistentes (401) y permite solo rutas @Public sin token', async () => {
-      // Ruta @Public (login) pasa sin token en JwtAuthGuard
+
       const loginCtx = makeContext(authController, 'login');
       expect(jwtGuard.canActivate(loginCtx)).toBe(true);
 
-      // JwtStrategy rechaza con 401 si el usuario del token fue borrado
       await expect(jwtStrategy.validate({ sub: 9999 })).rejects.toThrow(UnauthorizedException);
 
-      // JwtStrategy devuelve usuario con su rol pero SIN password
       const validated = await jwtStrategy.validate({ sub: 1 });
       expect(validated.id).toBe(1);
       expect(validated.role?.name).toBe('admin');
       expect((validated as unknown as Record<string, unknown>).password).toBeUndefined();
 
-      // Rutas GET /api/me y POST /api/logout
       expect(authController.me(adminUser)).toBe(adminUser);
       expect(authController.logout()).toEqual({ message: 'Sesión cerrada' });
     });
@@ -809,19 +800,17 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
       expect(ok.token).toBeTypeOf('string');
       expect((ok.user as unknown as Record<string, unknown>).password).toBeUndefined();
 
-      // Decodificar el JWT emitido y verificar que solo incluye { sub } sin datos sensibles
       const decoded = jwtService.verify<{ sub: number; password?: string }>(ok.token);
       expect(decoded.sub).toBe(1);
       expect(decoded.password).toBeUndefined();
     });
 
     it('aplica matriz RBAC estricta en RolesGuard para admin, mesero y cantinero (403 Forbidden)', () => {
-      // Ruta sin @Roles permite a cualquier usuario autenticado
+
       expect(
         rolesGuard.canActivate(makeContext(catalogsController, 'listCategories', mesero1User)),
       ).toBe(true);
 
-      // Mesero intentando acceder a proveedores, dashboard o crear categorías -> 403 Forbidden
       expect(() =>
         rolesGuard.canActivate(makeContext(catalogsController, 'listSuppliers', mesero1User)),
       ).toThrow(ForbiddenException);
@@ -834,7 +823,6 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
         rolesGuard.canActivate(makeContext(catalogsController, 'createCategory', mesero1User)),
       ).toThrow(ForbiddenException);
 
-      // Cantinero puede ver la cola de barra e insumos, pero no puede abrir cuentas ni ver usuarios
       expect(
         rolesGuard.canActivate(makeContext(operationsController, 'barQueue', cantineroUser)),
       ).toBe(true);
@@ -848,7 +836,6 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
         rolesGuard.canActivate(makeContext(catalogsController, 'listUsers', cantineroUser)),
       ).toThrow(ForbiddenException);
 
-      // Admin tiene acceso completo
       expect(
         rolesGuard.canActivate(makeContext(operationsController, 'dashboard', adminUser)),
       ).toBe(true);
@@ -869,7 +856,7 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
     });
 
     it('filtra campos no declarados (Mass Assignment / Whitelist), transforma vacíos a null y escapa comodines LIKE', async () => {
-      // Intento de Mass Assignment inyectando stock=99999 e is_admin=true en IngredientDto
+
       const sanitizedIngredient = (await validationPipe.transform(
         {
           name: 'Vodka',
@@ -885,14 +872,12 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
       expect(sanitizedIngredient.stock).toBeUndefined();
       expect(sanitizedIngredient.is_admin).toBeUndefined();
 
-      // Transformación emptyToNull en campos opcionales
       const transformedCat = (await validationPipe.transform(
         { name: 'Postres', description: '' },
         { type: 'body', metatype: CategoryDto },
       )) as CategoryDto;
       expect(transformedCat.description).toBeNull();
 
-      // Límites de negocio en DTOs (ej. máximo 50 unidades por renglón, capacidad de mesa máxima 30)
       await expect(
         validationPipe.transform(
           { product_id: 1, quantity: 51 },
@@ -914,7 +899,6 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
         ),
       ).rejects.toThrow(UnprocessableEntityException);
 
-      // Validación de recetas duplicadas e insumos duplicados en compras
       await expect(
         menuController.createProduct({
           name: 'Coctel Duplicado',
@@ -940,14 +924,10 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
         ),
       ).rejects.toThrow(UnprocessableEntityException);
 
-      // Escape seguro de comodines SQL LIKE
       expect(likePattern('50%_test\\')).toBe('%50\\%\\_test\\\\%');
     });
   });
 
-  // =========================================================================
-  // 2. PRUEBAS DE ESTABILIDAD, COBERTURA DE ENDPOINTS E INTEGRIDAD TRANSACCIONAL
-  // =========================================================================
   describe('2. Estabilidad, Cobertura de los 36 Endpoints y Transacciones', () => {
     it('garantiza precisión monetaria (IEEE 754), transformadores DECIMAL y manejo de recursos inexistentes (404)', () => {
       expect(money(0.1 + 0.2)).toBe(0.3);
@@ -989,7 +969,7 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
     });
 
     it('verifica estabilidad de CRUDs en CatalogsController y MenuInventoryController', async () => {
-      // Categorías
+
       const catsPaginated = await catalogsController.listCategories('Coc', '1', undefined);
       expect(Array.isArray(catsPaginated)).toBe(false);
       const catsAll = await catalogsController.listCategories(undefined, undefined, '1');
@@ -1004,24 +984,20 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
       await catalogsController.updateCategory(newCat.id, { name: 'Botanas Gourmet', description: null });
       await catalogsController.deleteCategory(newCat.id);
 
-      // Métodos de pago
       await catalogsController.listPaymentMethods('Efec', '1', undefined);
       const pm = await catalogsController.createPaymentMethod({ name: 'Tarjeta' } as PaymentMethodDto);
       await catalogsController.updatePaymentMethod(pm.id, { name: 'Tarjeta Crédito' });
       await catalogsController.deletePaymentMethod(pm.id);
 
-      // Proveedores
       await catalogsController.listSuppliers('Lic', '1', undefined);
       const sup = await catalogsController.createSupplier({ name: 'Distribuidora Sur' } as SupplierDto);
       await catalogsController.updateSupplier(sup.id, { name: 'Distribuidora Sur SA' });
       await catalogsController.deleteSupplier(sup.id);
 
-      // Mesas
       const tbl = await catalogsController.createTable({ number: 9, capacity: 6 } as BarTableDto);
       await catalogsController.updateTable(tbl.id, { number: 9, capacity: 8 });
       await catalogsController.deleteTable(tbl.id);
 
-      // Usuarios y Roles
       await catalogsController.listUsers('Ana', '1');
       await catalogsController.listRoles();
       await expect(
@@ -1040,7 +1016,6 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
       );
       await catalogsController.deleteUser(newUser!.id, adminUser);
 
-      // Productos e Insumos
       await menuController.listProducts('Mar', '1', '1', '1', undefined);
       await menuController.showProduct(1);
       const createdProd = await menuController.createProduct({
@@ -1079,7 +1054,7 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
     });
 
     it('impide IDOR entre meseros y ejecuta ciclo completo de órdenes, barra, compras y cancelaciones', async () => {
-      // Mesero 1 abre cuenta en Mesa 1
+
       const openOrder = await operationsController.createOrder(
         { bar_table_id: 1 } as OpenOrderDto,
         mesero1User,
@@ -1087,10 +1062,8 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
       expect(openOrder?.status).toBe('abierta');
       const orderId = openOrder!.id;
 
-      // No se puede borrar una mesa ocupada -> 409 Conflict
       await expect(catalogsController.deleteTable(1)).rejects.toThrow(ConflictException);
 
-      // Mesero 2 intenta ver o agregar productos a la cuenta de Mesero 1 -> 403 Forbidden (Anti-IDOR)
       await expect(operationsController.showOrder(orderId, mesero2User)).rejects.toThrow(
         ForbiddenException,
       );
@@ -1102,7 +1075,6 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
         ),
       ).rejects.toThrow(ForbiddenException);
 
-      // No se puede cobrar una cuenta vacía -> 422
       await expect(
         operationsController.closeOrder(
           orderId,
@@ -1111,7 +1083,6 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
         ),
       ).rejects.toThrow(UnprocessableEntityException);
 
-      // No se puede agregar un producto inactivo -> 422
       await expect(
         operationsController.addItem(
           orderId,
@@ -1120,34 +1091,29 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
         ),
       ).rejects.toThrow(UnprocessableEntityException);
 
-      // Agregar 2 Margaritas (consume 120ml Tequila y 60ml Limón)
       const updatedOrder = await operationsController.addItem(
         orderId,
         { product_id: 1, quantity: 2, notes: 'sin sal' } as AddItemDto,
         mesero1User,
       );
       expect(updatedOrder?.subtotal).toBe(240);
-      expect(db.ingredients[0].stock).toBe(480); // 600 - 120
+      expect(db.ingredients[0].stock).toBe(480);
 
-      // Cola de barra y marcar renglón como listo
       const queue = await operationsController.barQueue();
       expect(queue.length).toBeGreaterThan(0);
       const readyItem = await operationsController.markReady(queue[0].id);
       expect(readyItem?.status).toBe('listo');
 
-      // Mesero NO puede cancelar una cuenta que ya tiene productos -> 403 Forbidden
       await expect(operationsController.cancelOrder(orderId, mesero1User)).rejects.toThrow(
         ForbiddenException,
       );
 
-      // Admin cancela la cuenta -> regresa insumos exactos al inventario y libera la Mesa 1
       const cancelled = await operationsController.cancelOrder(orderId, adminUser);
       expect(cancelled?.status).toBe('cancelada');
       expect(db.ingredients[0].stock).toBe(600);
       expect(db.ingredients[1].stock).toBe(300);
       expect(db.tables[0].status).toBe('libre');
 
-      // Abrir nueva cuenta, agregar producto y cobrarla exitosamente (closeOrder)
       const orderToPay = await operationsController.createOrder(
         { bar_table_id: 1 } as OpenOrderDto,
         mesero1User,
@@ -1163,10 +1129,9 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
         mesero1User,
       );
       expect(paidOrder?.status).toBe('pagada');
-      expect(paidOrder?.total).toBe(150); // 120 + 30 propina
+      expect(paidOrder?.total).toBe(150);
       expect(db.tables[0].status).toBe('libre');
 
-      // Restaurar stock de Tequila/Limón con una Compra a proveedor (createPurchase)
       const purchase = await operationsController.createPurchase(
         {
           supplier_id: 1,
@@ -1184,9 +1149,6 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
     });
   });
 
-  // =========================================================================
-  // 3. PRUEBAS DE RENDIMIENTO Y ESTRÉS (CONCURRENCIA Y CARGA)
-  // =========================================================================
   describe('3. Rendimiento y Estrés (Concurrencia, Condiciones de Carrera y Latencia)', () => {
     it('resiste condición de carrera al abrir la misma mesa simultáneamente (25 peticiones concurrentes -> 1 éxito, 24 conflictos)', async () => {
       const attempts = Array.from({ length: 25 }, () =>
@@ -1205,7 +1167,7 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
     });
 
     it('impide inventario negativo bajo estrés concurrente de pedidos (30 peticiones simultáneas compitiendo por stock de 10 unidades)', async () => {
-      // Quedan 600ml de Tequila y 300ml de Limón -> alcanza exactamente para 10 Margaritas
+
       const openOrder = db.orders.find((o) => o.bar_table_id === 2 && o.status === 'abierta')!;
 
       const concurrentItems = Array.from({ length: 30 }, () =>
@@ -1221,7 +1183,7 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
 
       expect(okCount).toBe(10);
       expect(outOfStockCount).toBe(20);
-      expect(db.ingredients[0].stock).toBe(0); // Nunca baja de 0
+      expect(db.ingredients[0].stock).toBe(0);
       expect(db.ingredients[1].stock).toBe(0);
     });
 
@@ -1262,7 +1224,6 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
       expect(p95).toBeLessThan(35);
       expect(p99).toBeLessThan(60);
 
-      // Verificar también ajuste de inventario bajo bloqueo
       const adjusted = await menuController.adjust(
         1,
         { stock: 1500, reason: 'Reabastecimiento post-estrés' } as AdjustDto,

@@ -16,7 +16,6 @@ import {
     type Unit,
 } from './entities/index.js';
 
-//El seed llena la base con datos de prueba, para no estar capturando todo a mano cada vez que la borras chiavito
 @Injectable()
 export class SeedService {
     private readonly logger = new Logger(SeedService.name);
@@ -24,16 +23,14 @@ export class SeedService {
     constructor(private readonly dataSource: DataSource) { }
 
     async run() {
-        //Borra TODAS las tablas y las vuelve a crear a partir de las entidades, cuidado chiavito que no hay vuelta atras
+
         await this.dataSource.synchronize(true);
         const manager = this.dataSource.manager;
 
-        //Roles y un usuario de cada uno (contraseña de todos: password123)
         const [admin, mesero, cantinero] = await manager.save(
             manager.create(Role, [{ name: 'admin' }, { name: 'mesero' }, { name: 'cantinero' }]),
         );
 
-        //La contraseña se guarda encriptada, nunca como texto, ponte vrgas
         const password = await hash('password123', SALT_ROUNDS);
         const people: [string, string, Role][] = [
             ['Ana Admin', 'admin@bar.com', admin],
@@ -44,7 +41,6 @@ export class SeedService {
             await manager.save(manager.create(User, { name, email, password, role_id: role.id }));
         }
 
-        //Catalogos sencillos
         await manager.save(
             manager.create(PaymentMethod, [
                 { name: 'Efectivo' },
@@ -53,19 +49,16 @@ export class SeedService {
             ]),
         );
 
-        //Se guardan por nombre para poder usarlas abajo cuando se cree el menu
         const categories: Record<string, Category> = {};
         for (const name of ['Cervezas', 'Cócteles', 'Destilados', 'Sin alcohol', 'Botanas']) {
             categories[name] = await manager.save(manager.create(Category, { name }));
         }
 
-        //Mesas: [numero, capacidad], todas empiezan libres
         const tables = [[1, 4], [2, 4], [3, 2], [4, 2], [5, 6], [6, 4], [7, 8], [8, 4]];
         for (const [number, capacity] of tables) {
             await manager.save(manager.create(BarTable, { number, capacity }));
         }
 
-        //Insumos: clave → [nombre, unidad, stock, minimo, costo]
         const ingredientData: Record<string, [string, Unit, number, number, number]> = {
             tequila: ['Tequila blanco', 'ml', 7000, 1500, 0.35],
             ron: ['Ron blanco', 'ml', 5000, 1000, 0.28],
@@ -87,7 +80,6 @@ export class SeedService {
             );
         }
 
-        //Proveedores y lo que surten (MUCHOS A MUCHOS con precio)
         const licores = await manager.save(
             manager.create(Supplier, {
                 name: 'Licores del Norte',
@@ -105,7 +97,6 @@ export class SeedService {
             }),
         );
 
-        //Guarda los renglones en ingredient_supplier: { clave del insumo: precio }
         const supplies = async (supplier: Supplier, prices: Record<string, number>) => {
             for (const [key, price] of Object.entries(prices)) {
                 await manager.insert(IngredientSupplier, {
@@ -130,11 +121,9 @@ export class SeedService {
             mineral: 0.02,
             menta: 0.1,
             papas: 15,
-            clara: 19, //La cerveza clara la surten los dos, el que la de mas barata gana chiavito
+            clara: 19,
         });
 
-        //Menu con su receta (MUCHOS A MUCHOS con cantidad)
-        //[nombre, precio, categoria, { clave del insumo: cantidad por porcion }]
         const menu: [string, number, string, Record<string, number>][] = [
             ['Cerveza clara', 55, 'Cervezas', { clara: 1 }],
             ['Cerveza oscura', 60, 'Cervezas', { oscura: 1 }],

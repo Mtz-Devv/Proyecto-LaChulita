@@ -15,11 +15,6 @@ import {
 import { emptyToNull } from '../common.js';
 import type { Unit } from '../entities/index.js';
 
-/*
-DTOs del menu y del inventario, aqui viven las dos relaciones muchos a muchos que el usuario edita desde el front
-*/
-
-//Un renglon de la receta: { ingredient_id: 1, quantity: 60 }
 export class RecipeLineDto {
     @IsInt()
     ingredient_id: number;
@@ -29,7 +24,6 @@ export class RecipeLineDto {
     quantity: number;
 }
 
-//Productos con su receta
 export class ProductDto {
     @IsString()
     @IsNotEmpty()
@@ -52,7 +46,6 @@ export class ProductDto {
     @IsInt()
     category_id: number;
 
-    //La receta completa (MUCHOS A MUCHOS), el @Type hace que cada renglon se valide con RecipeLineDto chiavito
     @IsOptional()
     @IsArray()
     @ValidateNested({ each: true })
@@ -60,14 +53,12 @@ export class ProductDto {
     recipe?: RecipeLineDto[];
 }
 
-//Insumos con sus proveedores, el stock NO viene aqui porque solo cambia con ventas, compras y ajustes
 export class IngredientDto {
     @IsString()
     @IsNotEmpty()
     @MaxLength(100)
     name: string;
 
-    //Las mismas unidades que tiene la entidad Ingredient
     @IsIn(['ml', 'pza', 'g'])
     unit: Unit;
 
@@ -79,22 +70,19 @@ export class IngredientDto {
     @Min(0)
     cost: number;
 
-    //Los proveedores que lo surten: [1, 2] (MUCHOS A MUCHOS)
     @IsOptional()
     @IsArray()
     @IsInt({ each: true })
     supplier_ids?: number[];
 }
 
-//Ajuste de inventario: lo que de verdad hay en la bodega despues de contar
 export class AdjustDto {
     @IsNumber()
     @Min(0)
-    stock: number; //La cantidad REAL contada, no la diferencia
+    stock: number;
 
     @IsString()
     @IsNotEmpty()
     @MaxLength(255)
     reason: string;
 }
-

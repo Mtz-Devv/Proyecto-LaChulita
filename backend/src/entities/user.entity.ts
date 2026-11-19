@@ -2,7 +2,6 @@ import { Column, Entity, JoinColumn, ManyToOne, type Relation } from 'typeorm';
 import { Base } from './common.entity.js';
 import { Role } from './role.entity.js';
 
-//Usuarios
 @Entity('users')
 export class User extends Base {
     @Column({ type: 'varchar', length: 100 })
@@ -21,4 +20,3 @@ export class User extends Base {
     @JoinColumn({ name: 'role_id' })
     role: Relation<Role> | null;
 }
-
