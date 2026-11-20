@@ -63,6 +63,7 @@ import {
   entities,
   toNumber,
 } from '../src/entities/index.js';
+import { RealtimeService } from '../src/realtime/realtime.service.js';
 
 const TEST_SECRET = 'test-jwt-secret-key-for-audit-2026';
 
@@ -439,8 +440,10 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
         }),
       findOneBy: async ({ id }: { id: number }) =>
         db.orderItems.find((i) => i.id === id) ?? null,
-      findOne: async ({ where }: { where: { id: number } }) =>
-        db.orderItems.find((i) => i.id === where.id) ?? null,
+      findOne: async ({ where }: { where: { id: number } }) => {
+        const item = db.orderItems.find((i) => i.id === where.id);
+        return item ? { ...item, product: db.products.find((p) => p.id === item.product_id) ?? null } : null;
+      },
       save: async (item: Partial<OrderItem> & { id: number }) => {
         const idx = db.orderItems.findIndex((i) => i.id === item.id);
         if (idx >= 0) db.orderItems[idx] = { ...db.orderItems[idx], ...item };
@@ -734,6 +737,7 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
         JwtAuthGuard,
         RolesGuard,
         Reflector,
+        RealtimeService,
         { provide: DataSource, useValue: dataSourceMock },
         ...repoProviders,
       ],
@@ -1101,7 +1105,7 @@ describe('Sistema La Chulita — Pruebas de Seguridad, Estabilidad, Rendimiento 
 
       const queue = await operationsController.barQueue();
       expect(queue.length).toBeGreaterThan(0);
-      const readyItem = await operationsController.markReady(queue[0].id);
+      const readyItem = await operationsController.markReady(queue[0].id, cantineroUser);
       expect(readyItem?.status).toBe('listo');
 
       await expect(operationsController.cancelOrder(orderId, mesero1User)).rejects.toThrow(

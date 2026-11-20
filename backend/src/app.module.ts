@@ -11,6 +11,8 @@ import { CatalogsController } from './controllers/catalogs.controller.js';
 import { MenuInventoryController } from './controllers/menu-inventory.controller.js';
 import { OperationsController } from './controllers/operations.controller.js';
 import { entities } from './entities/index.js';
+import { RealtimeGateway } from './realtime/realtime.gateway.js';
+import { RealtimeService } from './realtime/realtime.service.js';
 import { SeedService } from './seed.service.js';
 
 const REQUIRED_ENV = ['DB_HOST', 'DB_USER', 'DB_NAME', 'JWT_SECRET'];
@@ -60,6 +62,8 @@ function validateEnv(env: Record<string, unknown>) {
   providers: [
     JwtStrategy,
     SeedService,
+    RealtimeService,
+    RealtimeGateway,
 
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },

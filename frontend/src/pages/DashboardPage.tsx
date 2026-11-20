@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import api from '../api/client'
+import { useRealtime } from '../hooks/useRealtime'
 import type { Ingredient, Product } from '../types'
 import { money } from '../utils/format'
 
@@ -16,10 +17,13 @@ interface DashboardData {
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
+  const [reload, setReload] = useState(0)
+
+  useRealtime(['dashboard'], () => setReload((r) => r + 1))
 
   useEffect(() => {
     api.get<DashboardData>('/dashboard').then((res) => setData(res.data))
-  }, [])
+  }, [reload])
 
   if (!data) return <p className="text-stone-500">Cargando reporte…</p>
 

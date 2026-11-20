@@ -7,6 +7,7 @@ interface AuthContextValue {
     loading: boolean
     login: (email: string, password: string) => Promise<void>
     logout: () => Promise<void>
+    refreshUser: () => Promise<void>
     hasRole: (...roles: RoleName[]) => boolean
 }
 
@@ -41,13 +42,17 @@ async function logout() {
         setUser(null)
     }
 }
+async function refreshUser() {
+    const res = await api.get<User>('/me')
+    if (localStorage.getItem(TOKEN_KEY)) setUser(res.data)
+}
 
 function hasRole(...roles: RoleName[]) {
     return !!user?.role && roles.includes(user.role.name)
 }
 
 return (
-    <AuthContext.Provider value={{ user, loading, login, logout, hasRole }}> 
+    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser, hasRole }}>
     {children}
     </AuthContext.Provider>
 )

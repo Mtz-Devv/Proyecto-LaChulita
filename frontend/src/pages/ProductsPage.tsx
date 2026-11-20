@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import api from '../api/client'
 import Modal from '../components/Modal'
 import Pagination from '../components/Pagination'
+import { useRealtime } from '../hooks/useRealtime'
 import type { Category, Ingredient, Paginated, Product } from '../types'
 import { errorMessage, money } from '../utils/format'
 
@@ -21,6 +22,7 @@ export default function ProductsPage() {
 
   const [categories, setCategories] = useState<Category[]>([])
   const [ingredients, setIngredients] = useState<Ingredient[]>([])
+  const [optionsReload, setOptionsReload] = useState(0)
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Product | null>(null)
@@ -28,10 +30,13 @@ export default function ProductsPage() {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
+  useRealtime(['products', 'categories'], () => setReload((r) => r + 1))
+  useRealtime(['categories', 'ingredients'], () => setOptionsReload((r) => r + 1))
+
   useEffect(() => {
     api.get<Category[]>('/categories', { params: { all: 1 } }).then((r) => setCategories(r.data))
     api.get<Ingredient[]>('/ingredients', { params: { all: 1 } }).then((r) => setIngredients(r.data))
-  }, [])
+  }, [optionsReload])
 
   useEffect(() => {
     api.get<Paginated<Product>>('/products', { params: { page, category_id: categoryFilter } })

@@ -1,7 +1,7 @@
 import { HttpStatus, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
-import { DatabaseErrorFilter } from './common.js';
+import { DatabaseErrorFilter, corsOrigin } from './common.js';
 import { SeedService } from './seed.service.js';
 
 async function bootstrap() {
@@ -15,11 +15,8 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
 
-  const corsOrigin = process.env.CORS_ORIGIN?.trim();
   app.enableCors({
-    origin: !corsOrigin || corsOrigin === '*'
-      ? true
-      : corsOrigin.split(',').map((item) => item.trim()),
+    origin: corsOrigin(),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });

@@ -3,6 +3,7 @@ import api from '../api/client'
 import Modal from '../components/Modal'
 import Pagination from '../components/Pagination'
 import { useAuth } from '../context/AuthContext'
+import { useRealtime } from '../hooks/useRealtime'
 import type { Ingredient, Paginated, Supplier } from '../types'
 import { errorMessage, money } from '../utils/format'
 
@@ -18,6 +19,7 @@ export default function IngredientsPage() {
   const [onlyLow, setOnlyLow] = useState(false)
   const [reload, setReload] = useState(0)
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [suppliersReload, setSuppliersReload] = useState(0)
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Ingredient | null>(null)
@@ -28,11 +30,14 @@ export default function IngredientsPage() {
   const [newStock, setNewStock] = useState('')
   const [reason, setReason] = useState('')
 
+  useRealtime(['ingredients', 'suppliers'], () => setReload((r) => r + 1))
+  useRealtime(['suppliers'], () => setSuppliersReload((r) => r + 1))
+
   useEffect(() => {
     if (isAdmin) {
       api.get<Supplier[]>('/suppliers', { params: { all: 1 } }).then((r) => setSuppliers(r.data))
     }
-  }, [isAdmin])
+  }, [isAdmin, suppliersReload])
 
   useEffect(() => {
     api.get<Paginated<Ingredient>>('/ingredients', { params: { page, low: onlyLow ? 1 : 0 } })

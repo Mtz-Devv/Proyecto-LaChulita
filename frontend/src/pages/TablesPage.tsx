@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import api from '../api/client'
+import { useRealtime } from '../hooks/useRealtime'
 import type { BarTable, Order } from '../types'
 import { errorMessage, money } from '../utils/format'
 
@@ -9,6 +10,8 @@ export default function TablesPage() {
   const [tables, setTables] = useState<BarTable[]>([])
   const [error, setError] = useState('')
   const [reload, setReload] = useState(0)
+
+  useRealtime(['tables'], () => setReload((r) => r + 1))
 
   useEffect(() => {
     api

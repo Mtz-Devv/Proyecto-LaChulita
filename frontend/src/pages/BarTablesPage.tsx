@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import api from '../api/client'
 import Modal from '../components/Modal'
+import { useRealtime } from '../hooks/useRealtime'
 import type { BarTable } from '../types'
 import { errorMessage } from '../utils/format'
 
@@ -15,6 +16,8 @@ export default function BarTablesPage() {
   const [form, setForm] = useState(emptyForm)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+
+  useRealtime(['tables'], () => setReload((r) => r + 1))
 
   useEffect(() => {
     api.get<BarTable[]>('/bar-tables')

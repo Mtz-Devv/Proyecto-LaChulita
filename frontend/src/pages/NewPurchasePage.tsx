@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import api from '../api/client'
+import { useRealtime } from '../hooks/useRealtime'
 import type { Ingredient, Supplier } from '../types'
 import { errorMessage, money } from '../utils/format'
 
@@ -15,13 +16,16 @@ export default function NewPurchasePage() {
   const [lines, setLines] = useState<Line[]>([])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [optionsReload, setOptionsReload] = useState(0)
+
+  useRealtime(['suppliers', 'ingredients'], () => setOptionsReload((r) => r + 1))
 
   useEffect(() => {
     api.get<Supplier[]>('/suppliers', { params: { all: 1 } })
       .then((r) => setSuppliers(r.data))
     api.get<Ingredient[]>('/ingredients', { params: { all: 1 } })
       .then((r) => setIngredients(r.data))
-  }, [])
+  }, [optionsReload])
 
   const available = ingredients.filter((i) =>
     i.suppliers?.some((link) => link.supplier_id === Number(supplierId)),

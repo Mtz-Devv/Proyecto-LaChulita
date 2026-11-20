@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import api from '../api/client'
 import Pagination from '../components/Pagination'
+import { useRealtime } from '../hooks/useRealtime'
 import type { InventoryMovement, Paginated } from '../types'
 import { date, errorMessage } from '../utils/format'
 
@@ -15,6 +16,9 @@ export default function MovementsPage() {
   const [page, setPage] = useState(1)
   const [lastPage, setLastPage] = useState(1)
   const [type, setType] = useState('')
+  const [reload, setReload] = useState(0)
+
+  useRealtime(['movements', 'ingredients'], () => setReload((r) => r + 1))
 
   useEffect(() => {
     api.get<Paginated<InventoryMovement>>('/inventory-movements', { params: { page, type } })
@@ -23,7 +27,7 @@ export default function MovementsPage() {
         setLastPage(res.data.last_page)
       })
       .catch((err) => alert(errorMessage(err)))
-  }, [page, type])
+  }, [page, type, reload])
 
   return (
     <div className="space-y-4">

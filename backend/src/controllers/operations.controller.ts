@@ -35,6 +35,10 @@ import {
     Supplier,
     User,
 } from '../entities/index.js';
+import { RealtimeService, type LowStock } from '../realtime/realtime.service.js';
+import type { RealtimeTopic } from '../realtime/realtime.types.js';
+
+const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
 
 @Controller()
 export class OperationsController {
@@ -55,6 +59,7 @@ export class OperationsController {
         private readonly ingredientRepository: Repository<Ingredient>,
         @InjectRepository(BarTable)
         private readonly barTableRepository: Repository<BarTable>,
+        private readonly realtime: RealtimeService,
     ) { }
 
     @Get('orders')
@@ -91,7 +96,7 @@ export class OperationsController {
     @Post('orders')
     @Roles('admin', 'mesero')
     async createOrder(@Body() body: OpenOrderDto, @CurrentUser() user: User) {
-        const id = await this.dataSource.transaction(async (manager) => {
+        const order = await this.dataSource.transaction(async (manager) => {
 
             const table = orFail(
                 await manager.findOne(BarTable, { where: { id: body.bar_table_id }, lock: FOR_UPDATE }),
@@ -102,12 +107,12 @@ export class OperationsController {
             }
 
             await manager.update(BarTable, table.id, { status: 'ocupada' });
-            const order = await manager.save(
+            return manager.save(
                 manager.create(Order, { bar_table_id: table.id, user_id: user.id }),
             );
-            return order.id;
         });
-        return this.findOrder(id);
+        this.syncOrder(['tables', 'orders', 'dashboard'], 'order.opened', order, user);
+        return this.findOrder(order.id);
     }
 
     @Get('orders/:id')
@@ -126,7 +131,7 @@ export class OperationsController {
         @Body() body: AddItemDto,
         @CurrentUser() user: User,
     ) {
-        await this.dataSource.transaction(async (manager) => {
+        const added = await this.dataSource.transaction(async (manager) => {
             const order = orFail(
                 await manager.findOne(Order, { where: { id }, lock: FOR_UPDATE }),
                 'La cuenta',
@@ -156,6 +161,7 @@ export class OperationsController {
                 notes: body.notes ?? null,
             });
             const orderItemId = Number(identifiers[0].id);
+            const lowStock: LowStock[] = [];
 
             for (const line of product.recipe) {
 
@@ -174,6 +180,11 @@ export class OperationsController {
                     );
                 }
 
+                const remaining = money(ingredient.stock - needed);
+                if (ingredient.stock > ingredient.min_stock && remaining <= ingredient.min_stock) {
+                    lowStock.push({ ingredient, stock: remaining });
+                }
+
                 await manager.decrement(Ingredient, { id: ingredient.id }, 'stock', needed);
                 await manager.insert(InventoryMovement, {
                     ingredient_id: ingredient.id,
@@ -186,9 +197,31 @@ export class OperationsController {
             }
 
             await this.recalculate(manager, order.id);
+            return { orderItemId, productName: product.name, lowStock };
         });
 
-        return this.findOrder(id);
+        const order = await this.findOrder(id);
+        if (order) {
+            this.syncOrder(
+                ['orders', 'tables', 'bar-queue', 'ingredients', 'movements', 'dashboard'],
+                'order.item_added',
+                order,
+                user,
+                added.orderItemId,
+            );
+            this.realtime.notify(
+                { roles: ['cantinero'], exceptUserId: user.id },
+                {
+                    kind: 'info',
+                    title: `Nuevo pedido · Mesa ${order.bar_table.number}`,
+                    message: `${body.quantity} × ${added.productName}${body.notes ? ` — ${body.notes}` : ''}`,
+                    topic: 'bar-queue',
+                    order_id: order.id,
+                },
+            );
+        }
+        this.realtime.notifyLowStock(added.lowStock);
+        return order;
     }
 
     @Post('orders/:id/close')
@@ -223,7 +256,24 @@ export class OperationsController {
             await this.recalculate(manager, id);
             await manager.update(BarTable, order.bar_table_id, { status: 'libre' });
         });
-        return this.findOrder(id);
+
+        const order = await this.findOrder(id);
+        if (order) {
+            this.syncOrder(['orders', 'tables', 'bar-queue', 'dashboard'], 'order.closed', order, user);
+            if (order.user_id !== user.id) {
+                this.realtime.notify(
+                    { userIds: [order.user_id] },
+                    {
+                        kind: 'info',
+                        title: `Cuenta #${order.id} cobrada`,
+                        message: `Mesa ${order.bar_table.number} · Total ${MXN.format(order.total)}`,
+                        topic: 'orders',
+                        order_id: order.id,
+                    },
+                );
+            }
+        }
+        return order;
     }
 
     @Post('orders/:id/cancel')
@@ -233,7 +283,7 @@ export class OperationsController {
         @Param('id', ParseIntPipe) id: number,
         @CurrentUser() user: User,
     ) {
-        await this.dataSource.transaction(async (manager) => {
+        const hadPending = await this.dataSource.transaction(async (manager) => {
             const order = orFail(
                 await manager.findOne(Order, { where: { id }, lock: FOR_UPDATE }),
                 'La cuenta',
@@ -271,8 +321,60 @@ export class OperationsController {
 
             await manager.update(Order, id, { status: 'cancelada', closed_at: new Date() });
             await manager.update(BarTable, order.bar_table_id, { status: 'libre' });
+            return items.some((item) => item.status === 'pendiente');
         });
-        return this.findOrder(id);
+
+        const order = await this.findOrder(id);
+        if (order) {
+            this.syncOrder(
+                ['orders', 'tables', 'bar-queue', 'ingredients', 'movements', 'dashboard'],
+                'order.cancelled',
+                order,
+                user,
+            );
+            if (order.user_id !== user.id) {
+                this.realtime.notify(
+                    { userIds: [order.user_id] },
+                    {
+                        kind: 'warning',
+                        title: `Cuenta #${order.id} cancelada`,
+                        message: `Mesa ${order.bar_table.number}`,
+                        topic: 'orders',
+                        order_id: order.id,
+                    },
+                );
+            }
+            if (hadPending) {
+                this.realtime.notify(
+                    { roles: ['cantinero'], exceptUserId: user.id },
+                    {
+                        kind: 'warning',
+                        title: `Cuenta cancelada · Mesa ${order.bar_table.number}`,
+                        message: 'Ya no prepares sus pedidos pendientes.',
+                        topic: 'bar-queue',
+                        order_id: order.id,
+                    },
+                );
+            }
+        }
+        return order;
+    }
+
+    private syncOrder(
+        topics: RealtimeTopic[],
+        action: string,
+        order: Pick<Order, 'id' | 'bar_table_id' | 'user_id'>,
+        actor: User,
+        id?: number,
+    ) {
+        this.realtime.sync(topics, {
+            action,
+            id,
+            order_id: order.id,
+            table_id: order.bar_table_id,
+            owner_id: order.user_id,
+            actor_id: actor.id,
+        });
     }
 
     private checkOwner(order: Order, user: User) {
@@ -312,11 +414,29 @@ export class OperationsController {
 
     @Patch('order-items/:id/ready')
     @Roles('admin', 'cantinero')
-    async markReady(@Param('id', ParseIntPipe) id: number) {
+    async markReady(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: User) {
         const item = orFail(await this.orderItemRepository.findOneBy({ id }), 'El renglón');
         item.status = 'listo';
         await this.orderItemRepository.save(item);
-        return this.orderItemRepository.findOne({ where: { id }, relations: { product: true } });
+
+        const [ready, order] = await Promise.all([
+            this.orderItemRepository.findOne({ where: { id }, relations: { product: true } }),
+            this.orderRepository.findOne({ where: { id: item.order_id }, relations: { bar_table: true } }),
+        ]);
+        if (ready && order) {
+            this.syncOrder(['orders', 'bar-queue'], 'order_item.ready', order, user, id);
+            this.realtime.notify(
+                { userIds: [order.user_id], exceptUserId: user.id },
+                {
+                    kind: 'success',
+                    title: `Listo para servir · Mesa ${order.bar_table.number}`,
+                    message: `${ready.quantity} × ${ready.product.name}`,
+                    topic: 'orders',
+                    order_id: order.id,
+                },
+            );
+        }
+        return ready;
     }
 
     @Get('purchases')
@@ -403,6 +523,11 @@ export class OperationsController {
 
             await manager.update(Purchase, purchase.id, { total: money(total) });
             return purchase.id;
+        });
+        this.realtime.sync(['purchases', 'ingredients', 'movements', 'dashboard'], {
+            action: 'purchase.created',
+            id,
+            actor_id: user.id,
         });
         return this.findPurchase(id);
     }

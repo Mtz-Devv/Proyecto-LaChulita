@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import api from '../api/client'
 import Modal from '../components/Modal'
 import Pagination from '../components/Pagination'
+import { useRealtime } from '../hooks/useRealtime'
 import type { Paginated, Supplier } from '../types'
 import { errorMessage } from '../utils/format'
 
@@ -20,6 +21,8 @@ export default function SuppliersPage() {
   const [form, setForm] = useState(emptyForm)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+
+  useRealtime(['suppliers'], () => setReload((r) => r + 1))
 
   useEffect(() => {
     api.get<Paginated<Supplier>>('/suppliers', { params: { page, search } })

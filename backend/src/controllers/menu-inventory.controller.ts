@@ -29,6 +29,7 @@ import {
     ProductIngredient,
     User,
 } from '../entities/index.js';
+import { RealtimeService } from '../realtime/realtime.service.js';
 
 @Controller()
 export class MenuInventoryController {
@@ -41,6 +42,7 @@ export class MenuInventoryController {
         private readonly ingredientRepository: Repository<Ingredient>,
         @InjectRepository(InventoryMovement)
         private readonly movementRepository: Repository<InventoryMovement>,
+        private readonly realtime: RealtimeService,
     ) { }
 
     @Get('products')
@@ -87,6 +89,7 @@ export class MenuInventoryController {
             await this.saveRecipe(manager, product.id, recipe ?? []);
             return product.id;
         });
+        this.realtime.sync(['products', 'categories'], { action: 'product.created', id });
         return this.findProduct(id);
     }
 
@@ -102,6 +105,7 @@ export class MenuInventoryController {
             await manager.save(Object.assign(product, data));
             if (recipe) await this.saveRecipe(manager, id, recipe);
         });
+        this.realtime.sync(['products', 'categories', 'dashboard'], { action: 'product.updated', id });
         return this.findProduct(id);
     }
 
@@ -111,6 +115,7 @@ export class MenuInventoryController {
     async deleteProduct(@Param('id', ParseIntPipe) id: number) {
         const product = orFail(await this.productRepository.findOneBy({ id }), 'El producto');
         await this.productRepository.remove(product);
+        this.realtime.sync(['products', 'categories', 'dashboard'], { action: 'product.deleted', id });
     }
 
     private findProduct(id: number) {
@@ -184,6 +189,7 @@ export class MenuInventoryController {
             await this.syncSuppliers(manager, ingredient.id, supplier_ids ?? []);
             return ingredient.id;
         });
+        this.realtime.sync(['ingredients', 'dashboard'], { action: 'ingredient.created', id });
         return this.findIngredient(id);
     }
 
@@ -199,6 +205,7 @@ export class MenuInventoryController {
             await manager.save(Object.assign(ingredient, data));
             if (supplier_ids) await this.syncSuppliers(manager, id, supplier_ids);
         });
+        this.realtime.sync(['ingredients', 'products', 'movements', 'dashboard'], { action: 'ingredient.updated', id });
         return this.findIngredient(id);
     }
 
@@ -208,6 +215,7 @@ export class MenuInventoryController {
     async deleteIngredient(@Param('id', ParseIntPipe) id: number) {
         const ingredient = orFail(await this.ingredientRepository.findOneBy({ id }), 'El insumo');
         await this.ingredientRepository.remove(ingredient);
+        this.realtime.sync(['ingredients', 'products', 'dashboard'], { action: 'ingredient.deleted', id });
     }
 
     @Post('ingredients/:id/adjust')
@@ -218,7 +226,7 @@ export class MenuInventoryController {
         @Body() body: AdjustDto,
         @CurrentUser() user: User,
     ) {
-        await this.dataSource.transaction(async (manager) => {
+        const lowStock = await this.dataSource.transaction(async (manager) => {
 
             const ingredient = orFail(
                 await manager.findOne(Ingredient, { where: { id }, lock: FOR_UPDATE }),
@@ -226,6 +234,7 @@ export class MenuInventoryController {
             );
 
             const difference = body.stock - ingredient.stock;
+            const crossed = ingredient.stock > ingredient.min_stock && body.stock <= ingredient.min_stock;
 
             await manager.update(Ingredient, id, { stock: body.stock });
             await manager.insert(InventoryMovement, {
@@ -235,7 +244,14 @@ export class MenuInventoryController {
                 quantity: difference,
                 reason: body.reason,
             });
+            return crossed ? [{ ingredient, stock: body.stock }] : [];
         });
+        this.realtime.sync(['ingredients', 'movements', 'dashboard'], {
+            action: 'ingredient.adjusted',
+            id,
+            actor_id: user.id,
+        });
+        this.realtime.notifyLowStock(lowStock);
         return this.findIngredient(id);
     }
 

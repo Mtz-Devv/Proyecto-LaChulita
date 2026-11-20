@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import api from '../api/client'
 import Pagination from '../components/Pagination'
+import { useRealtime } from '../hooks/useRealtime'
 import type { Paginated, Purchase } from '../types'
 import { date, errorMessage, money } from '../utils/format'
 
@@ -9,6 +10,9 @@ export default function PurchasesPage() {
   const [items, setItems] = useState<Purchase[]>([])
   const [page, setPage] = useState(1)
   const [lastPage, setLastPage] = useState(1)
+  const [reload, setReload] = useState(0)
+
+  useRealtime(['purchases', 'suppliers'], () => setReload((r) => r + 1))
 
   useEffect(() => {
     api.get<Paginated<Purchase>>('/purchases', { params: { page } })
@@ -17,7 +21,7 @@ export default function PurchasesPage() {
         setLastPage(res.data.last_page)
       })
       .catch((err) => alert(errorMessage(err)))
-  }, [page])
+  }, [page, reload])
 
   return (
     <div className="space-y-4">

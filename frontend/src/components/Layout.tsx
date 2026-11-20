@@ -1,5 +1,7 @@
 import { NavLink, Outlet } from 'react-router'
 import { useAuth } from '../context/AuthContext'
+import { useRealtimeStatus } from '../hooks/useRealtime'
+import type { RealtimeStatus } from '../realtime/context'
 import type { RoleName } from '../types'
 
 const links: { to: string; label: string; icon: string; roles: RoleName[] }[] = [
@@ -24,8 +26,30 @@ const roleBadge: Record<RoleName, string> = {
   cantinero: 'bg-violet-100 text-violet-900 border-violet-300/70',
 }
 
+const liveBadge: Record<RealtimeStatus, { label: string; title: string; pill: string; dot: string }> = {
+  online: {
+    label: 'En vivo',
+    title: 'Conectado en tiempo real: los cambios de otros dispositivos aparecen al instante.',
+    pill: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+    dot: 'bg-emerald-500 motion-safe:animate-pulse',
+  },
+  connecting: {
+    label: 'Conectando…',
+    title: 'Conectando con el servidor; los cambios aparecerán en cuanto vuelva la conexión.',
+    pill: 'border-amber-200 bg-amber-50 text-amber-800',
+    dot: 'bg-amber-500',
+  },
+  offline: {
+    label: 'Sin conexión',
+    title: 'Sin conexión en tiempo real: los cambios de otros dispositivos no se verán hasta reconectar.',
+    pill: 'border-rose-200 bg-rose-50 text-rose-800',
+    dot: 'bg-rose-500',
+  },
+}
+
 export default function Layout() {
   const { user, hasRole, logout } = useAuth()
+  const live = liveBadge[useRealtimeStatus()]
   const roleName = user?.role?.name
 
   return (
@@ -74,8 +98,17 @@ export default function Layout() {
 
       <div className="flex flex-1 flex-col">
         <header className="sticky top-0 z-10 flex items-center justify-between border-b border-stone-200/80 bg-white/90 px-6 py-3.5 backdrop-blur-md">
-          <div className="text-xs font-semibold uppercase tracking-widest text-stone-400">
-            Panel de operación
+          <div className="flex items-center gap-3">
+            <div className="text-xs font-semibold uppercase tracking-widest text-stone-400">
+              Panel de operación
+            </div>
+            <span
+              title={live.title}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${live.pill}`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${live.dot}`} />
+              {live.label}
+            </span>
           </div>
 
           <div className="flex items-center gap-3.5">

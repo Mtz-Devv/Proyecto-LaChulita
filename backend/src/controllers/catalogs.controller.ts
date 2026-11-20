@@ -34,6 +34,7 @@ import {
     Supplier,
     User,
 } from '../entities/index.js';
+import { RealtimeService } from '../realtime/realtime.service.js';
 
 @Controller()
 export class CatalogsController {
@@ -54,6 +55,7 @@ export class CatalogsController {
         private readonly userRepository: Repository<User>,
         @InjectRepository(Role)
         private readonly roleRepository: Repository<Role>,
+        private readonly realtime: RealtimeService,
     ) { }
 
     @Get('categories')
@@ -80,8 +82,10 @@ export class CatalogsController {
 
     @Post('categories')
     @Roles('admin')
-    createCategory(@Body() body: CategoryDto) {
-        return this.categoryRepository.save(this.categoryRepository.create(body));
+    async createCategory(@Body() body: CategoryDto) {
+        const category = await this.categoryRepository.save(this.categoryRepository.create(body));
+        this.realtime.sync(['categories'], { action: 'category.created', id: category.id });
+        return category;
     }
 
     @Get('categories/:id')
@@ -102,7 +106,9 @@ export class CatalogsController {
     ) {
         const category = orFail(await this.categoryRepository.findOneBy({ id }), 'La categoría');
 
-        return this.categoryRepository.save(Object.assign(category, body));
+        const saved = await this.categoryRepository.save(Object.assign(category, body));
+        this.realtime.sync(['categories', 'products'], { action: 'category.updated', id });
+        return saved;
     }
 
     @Delete('categories/:id')
@@ -111,6 +117,7 @@ export class CatalogsController {
     async deleteCategory(@Param('id', ParseIntPipe) id: number) {
         const category = orFail(await this.categoryRepository.findOneBy({ id }), 'La categoría');
         await this.categoryRepository.remove(category);
+        this.realtime.sync(['categories'], { action: 'category.deleted', id });
     }
 
     @Get('payment-methods')
@@ -131,8 +138,10 @@ export class CatalogsController {
 
     @Post('payment-methods')
     @Roles('admin')
-    createPaymentMethod(@Body() body: PaymentMethodDto) {
-        return this.paymentMethodRepository.save(this.paymentMethodRepository.create(body));
+    async createPaymentMethod(@Body() body: PaymentMethodDto) {
+        const method = await this.paymentMethodRepository.save(this.paymentMethodRepository.create(body));
+        this.realtime.sync(['payment-methods'], { action: 'payment_method.created', id: method.id });
+        return method;
     }
 
     @Put('payment-methods/:id')
@@ -142,7 +151,9 @@ export class CatalogsController {
         @Body() body: PaymentMethodDto,
     ) {
         const method = orFail(await this.paymentMethodRepository.findOneBy({ id }), 'El método de pago');
-        return this.paymentMethodRepository.save(Object.assign(method, body));
+        const saved = await this.paymentMethodRepository.save(Object.assign(method, body));
+        this.realtime.sync(['payment-methods'], { action: 'payment_method.updated', id });
+        return saved;
     }
 
     @Delete('payment-methods/:id')
@@ -151,6 +162,7 @@ export class CatalogsController {
     async deletePaymentMethod(@Param('id', ParseIntPipe) id: number) {
         const method = orFail(await this.paymentMethodRepository.findOneBy({ id }), 'El método de pago');
         await this.paymentMethodRepository.remove(method);
+        this.realtime.sync(['payment-methods'], { action: 'payment_method.deleted', id });
     }
 
     @Get('suppliers')
@@ -172,8 +184,10 @@ export class CatalogsController {
 
     @Post('suppliers')
     @Roles('admin')
-    createSupplier(@Body() body: SupplierDto) {
-        return this.supplierRepository.save(this.supplierRepository.create(body));
+    async createSupplier(@Body() body: SupplierDto) {
+        const supplier = await this.supplierRepository.save(this.supplierRepository.create(body));
+        this.realtime.sync(['suppliers'], { action: 'supplier.created', id: supplier.id });
+        return supplier;
     }
 
     @Put('suppliers/:id')
@@ -183,7 +197,9 @@ export class CatalogsController {
         @Body() body: SupplierDto,
     ) {
         const supplier = orFail(await this.supplierRepository.findOneBy({ id }), 'El proveedor');
-        return this.supplierRepository.save(Object.assign(supplier, body));
+        const saved = await this.supplierRepository.save(Object.assign(supplier, body));
+        this.realtime.sync(['suppliers', 'ingredients'], { action: 'supplier.updated', id });
+        return saved;
     }
 
     @Delete('suppliers/:id')
@@ -192,6 +208,7 @@ export class CatalogsController {
     async deleteSupplier(@Param('id', ParseIntPipe) id: number) {
         const supplier = orFail(await this.supplierRepository.findOneBy({ id }), 'El proveedor');
         await this.supplierRepository.remove(supplier);
+        this.realtime.sync(['suppliers', 'ingredients'], { action: 'supplier.deleted', id });
     }
 
     @Get('bar-tables')
@@ -207,8 +224,10 @@ export class CatalogsController {
 
     @Post('bar-tables')
     @Roles('admin')
-    createTable(@Body() body: BarTableDto) {
-        return this.barTableRepository.save(this.barTableRepository.create(body));
+    async createTable(@Body() body: BarTableDto) {
+        const table = await this.barTableRepository.save(this.barTableRepository.create(body));
+        this.realtime.sync(['tables', 'dashboard'], { action: 'table.created', id: table.id, table_id: table.id });
+        return table;
     }
 
     @Put('bar-tables/:id')
@@ -218,7 +237,9 @@ export class CatalogsController {
         @Body() body: BarTableDto,
     ) {
         const table = orFail(await this.barTableRepository.findOneBy({ id }), 'La mesa');
-        return this.barTableRepository.save(Object.assign(table, body));
+        const saved = await this.barTableRepository.save(Object.assign(table, body));
+        this.realtime.sync(['tables', 'orders', 'bar-queue', 'dashboard'], { action: 'table.updated', id, table_id: id });
+        return saved;
     }
 
     @Delete('bar-tables/:id')
@@ -230,6 +251,7 @@ export class CatalogsController {
             throw new ConflictException('No se puede borrar una mesa ocupada.');
         }
         await this.barTableRepository.remove(table);
+        this.realtime.sync(['tables', 'dashboard'], { action: 'table.deleted', id, table_id: id });
     }
 
     @Get('users')
@@ -256,6 +278,7 @@ export class CatalogsController {
         const user = await this.userRepository.save(
             this.userRepository.create({ ...data, password: await hash(password, SALT_ROUNDS) }),
         );
+        this.realtime.sync(['users'], { action: 'user.created', id: user.id });
 
         return this.userRepository.findOne({ where: { id: user.id }, relations: { role: true } });
     }
@@ -279,7 +302,10 @@ export class CatalogsController {
         if (password) user.password = await hash(password, SALT_ROUNDS);
 
         await this.userRepository.save(user);
-        return this.userRepository.findOne({ where: { id }, relations: { role: true } });
+        const updated = await this.userRepository.findOne({ where: { id }, relations: { role: true } });
+        this.realtime.sync(['users', 'orders'], { action: 'user.updated', id, actor_id: me.id });
+        this.realtime.userUpdated(id, updated?.role?.name ?? null);
+        return updated;
     }
 
     @Delete('users/:id')
@@ -294,6 +320,8 @@ export class CatalogsController {
         }
         const user = orFail(await this.userRepository.findOneBy({ id }), 'El usuario');
         await this.userRepository.remove(user);
+        this.realtime.sync(['users'], { action: 'user.deleted', id, actor_id: me.id });
+        this.realtime.userDeleted(id);
     }
 
     @Get('roles')

@@ -74,6 +74,13 @@ export function orFail<T>(entity: T | null, label = 'El registro'): T {
 export const emptyToNull = ({ value }: TransformFnParams): unknown =>
     value === '' ? null : value;
 
+export function corsOrigin(): true | string[] {
+    const origin = process.env.CORS_ORIGIN?.trim();
+    return !origin || origin === '*'
+        ? true
+        : origin.split(',').map((item) => item.trim());
+}
+
 const RELATED = 'No se puede borrar porque tiene registros relacionados.';
 
 const DB_ERRORS: Record<string, [number, string]> = {

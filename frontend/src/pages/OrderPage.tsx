@@ -1,13 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import api from '../api/client'
 import Modal from '../components/Modal'
 import { useAuth } from '../context/AuthContext'
+import { useRealtime } from '../hooks/useRealtime'
 import type { Category, Order, PaymentMethod, Product } from '../types'
 import { errorMessage, money } from '../utils/format'
 
 export default function OrderPage() {
   const { id } = useParams()
+  return <OrderDetail key={id} id={id} />
+}
+
+function OrderDetail({ id }: { id?: string }) {
   const navigate = useNavigate()
   const { hasRole } = useAuth()
 
@@ -20,15 +25,37 @@ export default function OrderPage() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [reload, setReload] = useState(0)
+  const [catalogReload, setCatalogReload] = useState(0)
+  const [closedElsewhere, setClosedElsewhere] = useState<Order['status'] | null>(null)
+  const lastStatus = useRef<Order['status'] | null>(null)
+  const closingHere = useRef(false)
 
   const [payOpen, setPayOpen] = useState(false)
   const [methodId, setMethodId] = useState('')
   const [tip, setTip] = useState('0')
 
+  useRealtime(['orders'], () => setReload((r) => r + 1), (event) => event.order_id === Number(id))
+  useRealtime(['products', 'categories', 'payment-methods'], () => setCatalogReload((r) => r + 1))
+
   useEffect(() => {
+    let active = true
     api.get<Order>(`/orders/${id}`)
-      .then((res) => setOrder(res.data))
-      .catch((err) => setError(errorMessage(err)))
+      .then((res) => {
+        if (!active) return
+        const before = lastStatus.current
+        lastStatus.current = res.data.status
+        if (res.data.status !== 'abierta') {
+          setPayOpen(false)
+          if (before === 'abierta' && !closingHere.current) setClosedElsewhere(res.data.status)
+        }
+        setOrder(res.data)
+      })
+      .catch((err) => {
+        if (active) setError(errorMessage(err))
+      })
+    return () => {
+      active = false
+    }
   }, [id, reload])
 
   useEffect(() => {
@@ -38,7 +65,7 @@ export default function OrderPage() {
       .then((r) => setCategories(r.data))
     api.get<PaymentMethod[]>('/payment-methods', { params: { all: 1 } })
       .then((r) => setMethods(r.data))
-  }, [])
+  }, [catalogReload])
 
   async function addProduct(product: Product) {
     setError('')
@@ -60,6 +87,7 @@ export default function OrderPage() {
 
   async function pay() {
     setError('')
+    closingHere.current = true
     try {
       await api.post(`/orders/${id}/close`, {
         payment_method_id: Number(methodId),
@@ -67,6 +95,7 @@ export default function OrderPage() {
       })
       navigate('/mesas')
     } catch (err) {
+      closingHere.current = false
       setError(errorMessage(err))
       setPayOpen(false)
     }
@@ -74,10 +103,12 @@ export default function OrderPage() {
 
   async function cancel() {
     if (!confirm('¿Cancelar la cuenta? Los insumos regresan al inventario.')) return
+    closingHere.current = true
     try {
       await api.post(`/orders/${id}/cancel`)
       navigate('/mesas')
     } catch (err) {
+      closingHere.current = false
       setError(errorMessage(err))
     }
   }
@@ -101,6 +132,11 @@ export default function OrderPage() {
         <button className="btn-secondary" onClick={() => setReload((r) => r + 1)}>Actualizar</button>
       </div>
 
+      {closedElsewhere && (
+        <p className="rounded-xl border border-amber-200 border-l-4 border-l-amber-500 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+          Esta cuenta fue {closedElsewhere === 'pagada' ? 'cobrada' : 'cancelada'} desde otro dispositivo.
+        </p>
+      )}
       {error && <p className="error-box">{error}</p>}
 
       <div className="grid gap-4 lg:grid-cols-5">
