@@ -77,3 +77,16 @@ table tbody tr {
 table tbody tr:hover {
   background-color: rgb(255 251 235 / 0.55);
 }
+
+@keyframes duendeWiggle {
+  0%, 100% {
+    transform: rotate(-4deg) translateY(0px);
+  }
+  50% {
+    transform: rotate(4deg) translateY(-4px);
+  }
+}
+
+.duende-wiggle {
+  animation: duendeWiggle 0.9s ease-in-out infinite;
+}

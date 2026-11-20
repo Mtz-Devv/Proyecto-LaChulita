@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import { TOKEN_KEY } from '../api/client'
+import DuendeEasterEgg, { pickDuendeAppearance, type DuendeAppearance } from '../components/DuendeEasterEgg'
 import Toaster, { type Toast } from '../components/Toaster'
 import { useAuth } from '../context/AuthContext'
 import { RealtimeContext, type RealtimeListener, type RealtimeStatus } from './context'
@@ -29,8 +30,10 @@ export default function RealtimeProvider({ children }: { children: ReactNode }) 
   const userId = user?.id ?? null
   const [socketStatus, setSocketStatus] = useState<RealtimeStatus>('connecting')
   const [toasts, setToasts] = useState<Toast[]>([])
+  const [duende, setDuende] = useState<DuendeAppearance | null>(null)
   const subscriptions = useRef(new Set<Subscription>())
   const lastToastId = useRef(0)
+  const lastDuendeId = useRef(0)
 
   const recheckSession = useEffectEvent(() => refreshUser())
   const endSession = useEffectEvent(() => logout())
@@ -78,7 +81,11 @@ export default function RealtimeProvider({ children }: { children: ReactNode }) 
       retry = setTimeout(reconnect, RETRY_MS)
     })
 
-    socket.on('sync', (event) => broadcast(event))
+    socket.on('sync', (event) => {
+      broadcast(event)
+      const next = pickDuendeAppearance(event.action, ++lastDuendeId.current)
+      if (next) setDuende(next)
+    })
 
     socket.on('notify', (event) => {
       const toast: Toast = { ...event, id: ++lastToastId.current }
@@ -112,6 +119,10 @@ export default function RealtimeProvider({ children }: { children: ReactNode }) 
     setToasts((list) => list.filter((toast) => toast.id !== id))
   }, [])
 
+  const hideDuende = useCallback(() => {
+    setDuende(null)
+  }, [])
+
   const status: RealtimeStatus = userId === null ? 'offline' : socketStatus
   const value = useMemo(() => ({ status, subscribe }), [status, subscribe])
 
@@ -119,6 +130,7 @@ export default function RealtimeProvider({ children }: { children: ReactNode }) 
     <RealtimeContext.Provider value={value}>
       {children}
       <Toaster toasts={toasts} onDismiss={dismiss} />
+      <DuendeEasterEgg appearance={duende} onHide={hideDuende} />
     </RealtimeContext.Provider>
   )
 }
