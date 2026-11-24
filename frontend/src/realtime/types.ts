@@ -38,3 +38,17 @@ export interface NotifyEvent {
 export interface SessionEvent {
   action: 'updated' | 'deleted'
 }
+
+export type RealtimeEvent =
+  | { type: 'sync'; data: SyncEvent }
+  | { type: 'notify'; data: NotifyEvent }
+  | { type: 'session'; data: SessionEvent }
+
+/** Respuesta de GET /realtime/poll (long polling). */
+export interface PollResponse {
+  /** Se manda tal cual en la siguiente petición. */
+  cursor: string
+  /** Hay que recargar todo: primera petición, servidor reiniciado o eventos perdidos. */
+  reset: boolean
+  events: RealtimeEvent[]
+}

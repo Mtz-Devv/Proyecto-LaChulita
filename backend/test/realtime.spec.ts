@@ -1,9 +1,8 @@
-import { ConflictException, Logger } from '@nestjs/common';
-import { JwtModule, JwtService } from '@nestjs/jwt';
+import { ConflictException, type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, type FindOperator } from 'typeorm';
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { OperationsController } from '../src/controllers/operations.controller.js';
 import {
   BarTable,
@@ -15,330 +14,337 @@ import {
   User,
   entities,
 } from '../src/entities/index.js';
-import { RealtimeGateway } from '../src/realtime/realtime.gateway.js';
-import { RealtimeService } from '../src/realtime/realtime.service.js';
-import type {
-  NotifyEvent,
-  RealtimeServer,
-  RealtimeSocket,
-  SocketData,
-  SyncEvent,
-} from '../src/realtime/realtime.types.js';
+import { RealtimeController } from '../src/realtime/realtime.controller.js';
+import { MAX_EVENTS, POLL_TIMEOUT_MS, RealtimeService } from '../src/realtime/realtime.service.js';
+import type { PollResponse, RealtimeEvent, RealtimeUser } from '../src/realtime/realtime.types.js';
 
-type Middleware = (socket: RealtimeSocket, next: (err?: Error) => void) => void;
+const admin: RealtimeUser = { id: 1, role: 'admin' };
+const mesero: RealtimeUser = { id: 2, role: 'mesero' };
+const cantinero: RealtimeUser = { id: 4, role: 'cantinero' };
+const sinRol: RealtimeUser = { id: 7, role: null };
 
-interface ServerCall {
-  op: 'emit' | 'socketsJoin' | 'socketsLeave' | 'disconnectSockets';
-  rooms: string[];
-  except: string[];
-  args: unknown[];
-}
+/** Deja que corran los microtasks y callbacks pendientes (con timers reales). */
+const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-const createFakeServer = () => {
-  const calls: ServerCall[] = [];
-  const operator = (rooms: string[], except: string[] = []) => {
-    const record = (op: ServerCall['op']) => (...args: unknown[]) => {
-      calls.push({ op, rooms, except, args });
-      return true;
-    };
-    return {
-      to: (room: string | string[]) => operator([...rooms, ...[room].flat()], except),
-      except: (room: string | string[]) => operator(rooms, [...except, ...[room].flat()]),
-      emit: record('emit'),
-      socketsJoin: record('socketsJoin'),
-      socketsLeave: record('socketsLeave'),
-      disconnectSockets: record('disconnectSockets'),
-    };
-  };
-  const server = {
-    use: vi.fn<(fn: Middleware) => void>(),
-    to: (room: string | string[]) => operator([room].flat()),
-    in: (room: string | string[]) => operator([room].flat()),
-  };
-  return { server, io: server as unknown as RealtimeServer, calls };
+/** Permite revisar si una promesa ya se resolvió sin esperarla. */
+const track = <T>(promise: Promise<T>) => {
+  const state: { done: boolean; value?: T } = { done: false };
+  void promise.then((value) => {
+    state.done = true;
+    state.value = value;
+  });
+  return state;
 };
 
-const emitted = (calls: ServerCall[], event: string) =>
-  calls.filter((call) => call.op === 'emit' && call.args[0] === event);
+const syncTopics = (events: RealtimeEvent[]) =>
+  events.map((event) => (event.type === 'sync' ? event.data.topics : event.type));
 
-describe('RealtimeService', () => {
+describe('RealtimeService (long polling)', () => {
   let service: RealtimeService;
-  let fake: ReturnType<typeof createFakeServer>;
+  let cursor: string;
+  let stream: string;
 
-  beforeEach(() => {
+  const now = (user: RealtimeUser) => service.poll(user, cursor, { timeoutMs: 0 });
+
+  beforeEach(async () => {
     service = new RealtimeService();
-    fake = createFakeServer();
-    service.attach(fake.io);
+    ({ cursor } = await service.poll(admin));
+    [stream] = cursor.split(':');
   });
 
   afterEach(() => {
+    service.onModuleDestroy();
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
-  it('manda a cada sala de rol solo los temas que ese rol puede leer', () => {
-    service.sync(['orders', 'bar-queue', 'movements'], { action: 'order.item_added', order_id: 7, actor_id: 2 });
+  it('la primera petición responde al instante con reset y el cursor actual', async () => {
+    expect(cursor).toMatch(/^[a-z0-9]+:0$/);
+    expect(await service.poll(mesero)).toEqual({ cursor, reset: true, events: [] });
+    expect(await now(mesero)).toEqual({ cursor, reset: false, events: [] });
+  });
 
-    const sent = emitted(fake.calls, 'sync');
-    expect(sent).toHaveLength(3);
-    expect(Object.fromEntries(sent.map((call) => [call.rooms.join(), (call.args[1] as SyncEvent).topics]))).toEqual({
-      'role:admin': ['orders', 'bar-queue', 'movements'],
-      'role:mesero': ['orders'],
-      'role:cantinero': ['bar-queue'],
-    });
-    for (const call of sent) {
-      expect(call.except).toEqual([]);
-      expect(call.args[1]).toMatchObject({ action: 'order.item_added', order_id: 7, actor_id: 2 });
-      expect((call.args[1] as SyncEvent).at).toBeTypeOf('string');
+  it('pide reset con cursores de otro arranque, del futuro, mal formados o de otro tipo', async () => {
+    service.sync(['tables'], { action: 'table.updated', id: 1, table_id: 1 });
+    const otherBoot = (await new RealtimeService().poll(admin)).cursor;
+
+    for (const bad of [otherBoot, `${stream}:2`, `${stream}:-1`, `${stream}:`, 'basura', '', 42, ['x']]) {
+      expect(await service.poll(admin, bad, { timeoutMs: 0 })).toEqual({
+        cursor: `${stream}:1`,
+        reset: true,
+        events: [],
+      });
     }
   });
 
-  it('quita temas repetidos y no manda nada a quien no puede leer ninguno', () => {
-    service.sync(['users', 'movements', 'users'], { action: 'user.created', id: 3 });
+  it(`guarda como máximo ${MAX_EVENTS} eventos; quien se quedó más atrás recibe reset`, async () => {
+    for (let id = 1; id <= MAX_EVENTS + 1; id++) service.sync(['tables'], { action: 'table.updated', id });
 
-    const sent = emitted(fake.calls, 'sync');
-    expect(sent).toHaveLength(1);
-    expect(sent[0].rooms).toEqual(['role:admin']);
-    expect((sent[0].args[1] as SyncEvent).topics).toEqual(['users', 'movements']);
+    expect(await now(admin)).toMatchObject({ cursor: `${stream}:${MAX_EVENTS + 1}`, reset: true, events: [] });
 
-    fake.calls.length = 0;
+    const oldestKept = await service.poll(admin, `${stream}:1`, { timeoutMs: 0 });
+    expect(oldestKept.reset).toBe(false);
+    expect(oldestKept.events).toHaveLength(MAX_EVENTS);
+    expect(oldestKept.events[0]).toMatchObject({ type: 'sync', data: { id: 2 } });
+  });
+
+  it('entrega a cada rol solo los temas que puede leer; sin rol no recibe sync', async () => {
+    service.sync(['orders', 'bar-queue', 'movements'], { action: 'order.item_added', order_id: 7, actor_id: 2 });
+
+    expect(syncTopics((await now(admin)).events)).toEqual([['orders', 'bar-queue', 'movements']]);
+    expect(syncTopics((await now(mesero)).events)).toEqual([['orders']]);
+    expect(syncTopics((await now(cantinero)).events)).toEqual([['bar-queue']]);
+    expect((await now(sinRol)).events).toEqual([]);
+
+    const [event] = (await now(mesero)).events;
+    expect(event.data).toMatchObject({ action: 'order.item_added', order_id: 7, actor_id: 2 });
+    expect((event.data as { at: string }).at).toBeTypeOf('string');
+  });
+
+  it('quita temas repetidos y no guarda eventos sin temas ni destinatarios', async () => {
     service.sync([], { action: 'nada' });
-    expect(fake.calls).toEqual([]);
+    service.notify({}, { kind: 'info', title: 'Nadie', message: 'Sin destino' });
+    service.notify({ roles: [], userIds: [] }, { kind: 'info', title: 'Nadie', message: 'Sin destino' });
+    expect((await now(admin)).cursor).toBe(cursor);
+
+    service.sync(['users', 'movements', 'users'], { action: 'user.created', id: 3 });
+    expect(syncTopics((await now(admin)).events)).toEqual([['users', 'movements']]);
+    expect((await now(mesero)).events).toEqual([]);
   });
 
-  it('no hace nada si todavía no hay servidor (pruebas o seed)', () => {
-    const detached = new RealtimeService();
-    expect(() => {
-      detached.sync(['orders'], { action: 'order.opened', order_id: 1 });
-      detached.notify({ roles: ['admin'] }, { kind: 'info', title: 'Prueba', message: 'Sin servidor' });
-      detached.notifyLowStock([{ ingredient: { name: 'Limón', unit: 'ml', min_stock: 50 }, stock: 10 }]);
-      detached.userUpdated(1, 'admin');
-      detached.userDeleted(1);
-    }).not.toThrow();
-  });
-
-  it('nunca lanza el error a la petición aunque Socket.IO falle', () => {
-    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
-    const broken = {
-      to: () => {
-        throw new Error('socket roto');
-      },
-      in: () => {
-        throw new Error('socket roto');
-      },
-    };
-    service.attach(broken as unknown as RealtimeServer);
-
-    expect(() => {
-      service.sync(['orders'], { action: 'order.opened', order_id: 1 });
-      service.notify({ userIds: [2] }, { kind: 'info', title: 'Prueba', message: 'Falla' });
-      service.userUpdated(2, 'mesero');
-      service.userDeleted(2);
-    }).not.toThrow();
-    expect(warn).toHaveBeenCalledTimes(4);
-  });
-
-  it('notify respeta roles, usuarios y la exclusión del autor', () => {
+  it('notify respeta roles, usuarios y la exclusión del autor', async () => {
     service.notify(
       { roles: ['cantinero'], userIds: [2], exceptUserId: 4 },
       { kind: 'info', title: 'Nuevo pedido · Mesa 3', message: '1 × Margarita', topic: 'bar-queue', order_id: 9 },
     );
     service.notify({ userIds: [2] }, { kind: 'success', title: 'Listo para servir · Mesa 3', message: '1 × Margarita' });
-    service.notify({}, { kind: 'info', title: 'Nadie', message: 'Sin destino' });
 
-    const sent = emitted(fake.calls, 'notify');
-    expect(sent).toHaveLength(2);
-    expect(sent[0]).toMatchObject({ rooms: ['role:cantinero', 'user:2'], except: ['user:4'] });
-    expect(sent[0].args[1]).toMatchObject({ kind: 'info', title: 'Nuevo pedido · Mesa 3', topic: 'bar-queue', order_id: 9 });
-    expect((sent[0].args[1] as NotifyEvent).at).toBeTypeOf('string');
-    expect(sent[1]).toMatchObject({ rooms: ['user:2'], except: [] });
-  });
+    const titles = async (user: RealtimeUser) =>
+      (await now(user)).events.map((event) => (event.type === 'notify' ? event.data.title : event.type));
 
-  it('avisa insumos por agotarse a admin y cantinero sin decimales fantasma', () => {
-    service.notifyLowStock([{ ingredient: { name: 'Limón', unit: 'ml', min_stock: 50 }, stock: 0.1 + 0.2 }]);
+    expect(await titles(mesero)).toEqual(['Nuevo pedido · Mesa 3', 'Listo para servir · Mesa 3']);
+    expect(await titles({ id: 5, role: 'cantinero' })).toEqual(['Nuevo pedido · Mesa 3']);
+    expect(await titles(cantinero)).toEqual([]);
+    expect(await titles(admin)).toEqual([]);
 
-    const sent = emitted(fake.calls, 'notify');
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ rooms: ['role:admin', 'role:cantinero'], except: [] });
-    expect(sent[0].args[1]).toMatchObject({
-      kind: 'warning',
-      title: 'Insumo por agotarse',
-      message: 'Limón: quedan 0.3 ml (mínimo 50)',
-      topic: 'ingredients',
+    expect((await now(mesero)).events[0]).toEqual({
+      type: 'notify',
+      data: {
+        kind: 'info',
+        title: 'Nuevo pedido · Mesa 3',
+        message: '1 × Margarita',
+        topic: 'bar-queue',
+        order_id: 9,
+        at: expect.any(String),
+      },
     });
   });
 
-  it('userUpdated saca los sockets de todos los roles, los mete al nuevo y avisa la sesión', () => {
-    service.userUpdated(5, 'cantinero');
-    expect(fake.calls).toEqual([
-      { op: 'socketsLeave', rooms: ['user:5'], except: [], args: [['role:admin', 'role:mesero', 'role:cantinero']] },
-      { op: 'socketsJoin', rooms: ['user:5'], except: [], args: ['role:cantinero'] },
-      { op: 'emit', rooms: ['user:5'], except: [], args: ['session', { action: 'updated' }] },
-    ]);
+  it('avisa insumos por agotarse a admin y cantinero sin decimales fantasma', async () => {
+    service.notifyLowStock([{ ingredient: { name: 'Limón', unit: 'ml', min_stock: 50 }, stock: 0.1 + 0.2 }]);
 
-    fake.calls.length = 0;
-    service.userUpdated(5, null);
-    expect(fake.calls.map((call) => call.op)).toEqual(['socketsLeave', 'emit']);
+    for (const user of [admin, cantinero]) {
+      expect((await now(user)).events).toEqual([
+        {
+          type: 'notify',
+          data: {
+            kind: 'warning',
+            title: 'Insumo por agotarse',
+            message: 'Limón: quedan 0.3 ml (mínimo 50)',
+            topic: 'ingredients',
+            at: expect.any(String),
+          },
+        },
+      ]);
+    }
+    expect((await now(mesero)).events).toEqual([]);
   });
 
-  it('userDeleted avisa la sesión y después desconecta los sockets del usuario', () => {
-    service.userDeleted(5);
-    expect(fake.calls).toEqual([
-      { op: 'emit', rooms: ['user:5'], except: [], args: ['session', { action: 'deleted' }] },
-      { op: 'disconnectSockets', rooms: ['user:5'], except: [], args: [true] },
-    ]);
+  it('sin eventos la petición espera y responde en cuanto llega algo visible, junto con lo del mismo tick', async () => {
+    const forMesero = track(service.poll(mesero, cursor));
+    const forCantinero = track(service.poll(cantinero, cursor));
+    await flush();
+    expect(forMesero.done).toBe(false);
+
+    service.sync(['movements'], { action: 'ingredient.adjusted', id: 1 });
+    await flush();
+    expect(forMesero.done).toBe(false);
+    expect(forCantinero.done).toBe(false);
+
+    service.sync(['orders'], { action: 'order.opened', order_id: 1 });
+    service.notify({ userIds: [2] }, { kind: 'info', title: 'Hola', message: 'Mesa 1' });
+    await flush();
+
+    expect(forMesero.value).toEqual({
+      cursor: `${stream}:3`,
+      reset: false,
+      events: [
+        { type: 'sync', data: expect.objectContaining({ topics: ['orders'], action: 'order.opened' }) },
+        { type: 'notify', data: expect.objectContaining({ title: 'Hola' }) },
+      ],
+    });
+    expect(forCantinero.done).toBe(false);
+
+    service.onModuleDestroy();
+    await flush();
+    expect(forCantinero.value).toEqual({ cursor: `${stream}:3`, reset: false, events: [] });
+  });
+
+  it(`si no pasa nada responde vacía a los ${POLL_TIMEOUT_MS / 1000} s con el cursor al día`, async () => {
+    vi.useFakeTimers();
+    const pending = track(service.poll(mesero, cursor));
+    service.sync(['users'], { action: 'user.created', id: 9 });
+
+    await vi.advanceTimersByTimeAsync(POLL_TIMEOUT_MS - 1);
+    expect(pending.done).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(pending.value).toEqual({ cursor: `${stream}:1`, reset: false, events: [] });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('si el cliente se va (abort) suelta la espera y no deja temporizadores', async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const pending = service.poll(admin, cursor, { signal: controller.signal });
+    expect(vi.getTimerCount()).toBe(1);
+
+    controller.abort();
+    await expect(pending).resolves.toEqual({ cursor, reset: false, events: [] });
+    expect(vi.getTimerCount()).toBe(0);
+
+    await expect(service.poll(admin, cursor, { signal: AbortSignal.abort() })).resolves.toEqual({
+      cursor,
+      reset: false,
+      events: [],
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('userUpdated avisa la sesión solo a ese usuario y su espera ya filtra con el rol nuevo', async () => {
+    const forUser = service.poll(mesero, cursor);
+    const forAdmin = service.poll(admin, cursor);
+
+    service.userUpdated(2, 'cantinero');
+    service.sync(['bar-queue'], { action: 'order.item_added', order_id: 1 });
+
+    expect(await forUser).toEqual({
+      cursor: `${stream}:2`,
+      reset: false,
+      events: [
+        { type: 'session', data: { action: 'updated' } },
+        { type: 'sync', data: expect.objectContaining({ topics: ['bar-queue'] }) },
+      ],
+    });
+    expect(syncTopics((await forAdmin).events)).toEqual([['bar-queue']]);
+  });
+
+  it('userDeleted avisa la sesión solo a ese usuario', async () => {
+    service.userDeleted(2);
+    expect((await now(mesero)).events).toEqual([{ type: 'session', data: { action: 'deleted' } }]);
+    expect((await now(admin)).events).toEqual([]);
+  });
+
+  it('publicar sin nadie escuchando (seed o pruebas) no falla', () => {
+    const detached = new RealtimeService();
+    expect(() => {
+      detached.sync(['orders'], { action: 'order.opened', order_id: 1 });
+      detached.notify({ roles: ['admin'] }, { kind: 'info', title: 'Prueba', message: 'Sin clientes' });
+      detached.notifyLowStock([{ ingredient: { name: 'Limón', unit: 'ml', min_stock: 50 }, stock: 10 }]);
+      detached.userUpdated(1, 'admin');
+      detached.userDeleted(1);
+    }).not.toThrow();
   });
 });
 
-describe('RealtimeGateway', () => {
-  const SECRET = 'realtime-test-secret-2026';
-  const users = [
-    { id: 1, name: 'Ana Admin', role: { id: 1, name: 'admin' } },
-    { id: 2, name: 'Mario Mesero', role: { id: 2, name: 'mesero' } },
-    { id: 7, name: 'Sin Rol', role: null },
-  ];
+describe('RealtimeController (GET /realtime/poll por HTTP)', () => {
+  const meseroUser = { id: 2, name: 'Mario Mesero', role: { id: 2, name: 'mesero' } } as unknown as User;
+  const sinRolUser = { id: 7, name: 'Sin Rol', role: null } as unknown as User;
 
-  let gateway: RealtimeGateway;
+  let app: INestApplication;
   let realtime: RealtimeService;
-  let jwtService: JwtService;
-  let fake: ReturnType<typeof createFakeServer>;
-  let middleware: Middleware;
-  let socketCount = 0;
+  let baseUrl: string;
+  let current: User = meseroUser;
 
-  const createSocket = (
-    auth: Record<string, unknown> = {},
-    headers: Record<string, string> = {},
-    query: Record<string, string> = {},
-  ) => {
-    const socket = {
-      id: `socket-${++socketCount}`,
-      handshake: { auth, headers, query },
-      data: {} as Partial<SocketData>,
-      join: vi.fn<(rooms: string | string[]) => void>(),
-      disconnect: vi.fn<(close?: boolean) => void>(),
-    };
-    return { socket, io: socket as unknown as RealtimeSocket };
-  };
-
-  const authenticate = (socket: RealtimeSocket) =>
-    new Promise<Error | undefined>((resolve) => middleware(socket, resolve));
-
-  const joinedRooms = (join: MockInstance<(rooms: string | string[]) => void>) =>
-    join.mock.calls.flatMap(([rooms]) => [rooms].flat());
+  const request = (cursor?: string, init?: RequestInit) =>
+    fetch(`${baseUrl}/realtime/poll${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, init);
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [JwtModule.register({ secret: SECRET, signOptions: { expiresIn: '8h' } })],
-      providers: [
-        RealtimeGateway,
-        RealtimeService,
-        {
-          provide: getRepositoryToken(User),
-          useValue: {
-            findOne: async ({ where }: { where: { id: number } }) =>
-              users.find((user) => user.id === where.id) ?? null,
-          },
-        },
-      ],
+      controllers: [RealtimeController],
+      providers: [RealtimeService],
     }).compile();
 
-    gateway = moduleRef.get(RealtimeGateway);
-    realtime = moduleRef.get(RealtimeService);
-    jwtService = moduleRef.get(JwtService);
-  });
-
-  beforeEach(() => {
-    vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
-    fake = createFakeServer();
-    gateway.afterInit(fake.io);
-    middleware = fake.server.use.mock.calls[0][0];
+    app = moduleRef.createNestApplication({ logger: false });
+    // En la app real lo pone el JwtAuthGuard global; aquí se simula la sesión.
+    app.use((req: { user?: User }, _res: unknown, next: () => void) => {
+      req.user = current;
+      next();
+    });
+    await app.listen(0, '127.0.0.1');
+    baseUrl = await app.getUrl();
+    realtime = app.get(RealtimeService);
   });
 
   afterEach(() => {
-    vi.useRealTimers();
+    current = meseroUser;
     vi.restoreAllMocks();
   });
 
-  it('al iniciar conecta RealtimeService con el servidor de Socket.IO', () => {
-    realtime.sync(['tables'], { action: 'table.updated', id: 1, table_id: 1 });
-    expect(new Set(emitted(fake.calls, 'sync').map((call) => call.rooms.join()))).toEqual(
-      new Set(['role:admin', 'role:mesero', 'role:cantinero']),
-    );
+  afterAll(async () => {
+    await app.close();
   });
 
-  it('acepta el JWT por auth.token o por Authorization: Bearer y guarda al usuario en el socket', async () => {
-    const token = await jwtService.signAsync({ sub: 1 });
-
-    const fromAuth = createSocket({ token });
-    await expect(authenticate(fromAuth.io)).resolves.toBeUndefined();
-    expect(fromAuth.socket.data.user).toEqual({ id: 1, name: 'Ana Admin', role: 'admin' });
-    expect(fromAuth.socket.data.exp).toBeTypeOf('number');
-
-    const fromHeader = createSocket({}, { authorization: `Bearer ${token}` });
-    await expect(authenticate(fromHeader.io)).resolves.toBeUndefined();
-    expect(fromHeader.socket.data.user).toEqual({ id: 1, name: 'Ana Admin', role: 'admin' });
-  });
-
-  it('rechaza sin token, con token inválido, vencido, en query string o de un usuario que ya no existe', async () => {
-    const otherSecret = new JwtService({ secret: 'otra-frase-secreta' });
-    const rejected = [
-      createSocket(),
-      createSocket({ token: 'esto-no-es-un-jwt' }),
-      createSocket({ token: await otherSecret.signAsync({ sub: 1 }) }),
-      createSocket({ token: await jwtService.signAsync({ sub: 1 }, { expiresIn: -10 }) }),
-      createSocket({}, {}, { token: await jwtService.signAsync({ sub: 1 }) }),
-      createSocket({ token: await jwtService.signAsync({ sub: 999 }) }),
-    ];
-
-    for (const { socket, io } of rejected) {
-      const error = await authenticate(io);
-      expect(error).toBeInstanceOf(Error);
-      expect(error?.message).toBe('unauthorized');
-      expect(socket.data.user).toBeUndefined();
+  it('requiere sesión (no es @Public) y no se limita por rol', () => {
+    const handler = Object.getOwnPropertyDescriptor(RealtimeController.prototype, 'poll')?.value as object;
+    expect(handler).toBeTypeOf('function');
+    for (const target of [RealtimeController, handler]) {
+      expect(Reflect.getMetadata('isPublic', target)).toBeUndefined();
+      expect(Reflect.getMetadata('roles', target)).toBeUndefined();
     }
   });
 
-  it('al conectar mete el socket a user:<id> y role:<rol>', async () => {
-    const mesero = createSocket({ token: await jwtService.signAsync({ sub: 2 }) });
-    await authenticate(mesero.io);
-    gateway.handleConnection(mesero.io);
-    expect(joinedRooms(mesero.socket.join)).toEqual(['user:2', 'role:mesero']);
+  it('sin cursor responde reset; con cursor espera hasta que llega un evento de su rol', async () => {
+    const first = await request();
+    expect(first.status).toBe(200);
+    expect(first.headers.get('cache-control')).toBe('no-store');
+    const { cursor, reset } = (await first.json()) as PollResponse;
+    expect(reset).toBe(true);
 
-    const withoutRole = createSocket({ token: await jwtService.signAsync({ sub: 7 }) });
-    await authenticate(withoutRole.io);
-    gateway.handleConnection(withoutRole.io);
-    expect(joinedRooms(withoutRole.socket.join)).toEqual(['user:7']);
+    const poll = vi.spyOn(realtime, 'poll');
+    const pending = request(cursor);
+    await vi.waitFor(() => expect(poll).toHaveBeenCalledTimes(1));
+    expect(poll).toHaveBeenCalledWith({ id: 2, role: 'mesero' }, cursor, { signal: expect.any(AbortSignal) });
 
-    gateway.handleDisconnect(mesero.io);
-    gateway.handleDisconnect(withoutRole.io);
+    realtime.sync(['dashboard'], { action: 'product.updated', id: 1 });
+    realtime.sync(['orders'], { action: 'order.opened', order_id: 1 });
+
+    const response = await pending;
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      cursor: expect.stringMatching(/:2$/),
+      reset: false,
+      events: [{ type: 'sync', data: expect.objectContaining({ topics: ['orders'], action: 'order.opened' }) }],
+    });
   });
 
-  it('desconecta el socket cuando vence el JWT y cancela el temporizador si se va antes', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-11-20T12:00:00Z'));
-    const exp = Math.floor(Date.now() / 1000) + 60;
+  it('si el cliente corta la conexión el servidor suelta la espera', async () => {
+    const { cursor } = (await (await request()).json()) as PollResponse;
+    const poll = vi.spyOn(realtime, 'poll');
+    const controller = new AbortController();
 
-    const expiring = createSocket();
-    expiring.socket.data = { user: { id: 2, name: 'Mario Mesero', role: 'mesero' }, exp };
-    gateway.handleConnection(expiring.io);
-    vi.advanceTimersByTime(59_999);
-    expect(expiring.socket.disconnect).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(1);
-    expect(expiring.socket.disconnect).toHaveBeenCalledWith(true);
-    gateway.handleDisconnect(expiring.io);
+    const pending = request(cursor, { signal: controller.signal });
+    await vi.waitFor(() => expect(poll).toHaveBeenCalledTimes(1));
+    controller.abort();
 
-    const leaving = createSocket();
-    leaving.socket.data = { user: { id: 1, name: 'Ana Admin', role: 'admin' }, exp };
-    gateway.handleConnection(leaving.io);
-    gateway.handleDisconnect(leaving.io);
-    vi.advanceTimersByTime(120_000);
-    expect(leaving.socket.disconnect).not.toHaveBeenCalled();
+    await expect(pending).rejects.toThrow();
+    await expect(poll.mock.results[0].value).resolves.toEqual({ cursor, reset: false, events: [] });
+  });
 
-    const alreadyExpired = createSocket();
-    alreadyExpired.socket.data = { user: { id: 1, name: 'Ana Admin', role: 'admin' }, exp: exp - 3600 };
-    gateway.handleConnection(alreadyExpired.io);
-    vi.advanceTimersByTime(1);
-    expect(alreadyExpired.socket.disconnect).toHaveBeenCalledWith(true);
-    gateway.handleDisconnect(alreadyExpired.io);
+  it('un usuario sin rol hace polling con role null', async () => {
+    current = sinRolUser;
+    const poll = vi.spyOn(realtime, 'poll');
+    expect((await request()).status).toBe(200);
+    expect(poll).toHaveBeenCalledWith({ id: 7, role: null }, undefined, { signal: expect.any(AbortSignal) });
   });
 });
 

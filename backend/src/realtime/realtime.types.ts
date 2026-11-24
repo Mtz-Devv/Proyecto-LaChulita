@@ -1,4 +1,3 @@
-import type { DefaultEventsMap, Server, Socket } from 'socket.io';
 import type { Rolename } from '../entities/index.js';
 
 export const REALTIME_TOPICS = [
@@ -59,23 +58,25 @@ export interface SessionEvent {
     action: 'updated' | 'deleted';
 }
 
-export interface ServerToClientEvents {
-    sync: (event: SyncEvent) => void;
-    notify: (event: NotifyEvent) => void;
-    session: (event: SessionEvent) => void;
+export type RealtimeEvent =
+    | { type: 'sync'; data: SyncEvent }
+    | { type: 'notify'; data: NotifyEvent }
+    | { type: 'session'; data: SessionEvent };
+
+/**
+ * Respuesta de GET /api/realtime/poll.
+ * - cursor: se manda tal cual en la siguiente petición.
+ * - reset: el cliente debe recargar todo (primera petición, servidor reiniciado
+ *   o se perdieron eventos porque el cliente tardó demasiado en volver).
+ * - events: eventos nuevos que este usuario puede ver, en orden.
+ */
+export interface PollResponse {
+    cursor: string;
+    reset: boolean;
+    events: RealtimeEvent[];
 }
 
-export interface SocketUser {
+export interface RealtimeUser {
     id: number;
-    name: string;
     role: Rolename | null;
 }
-
-export interface SocketData {
-    user: SocketUser;
-    exp?: number;
-}
-
-export type RealtimeServer = Server<DefaultEventsMap, ServerToClientEvents, DefaultEventsMap, SocketData>;
-
-export type RealtimeSocket = Socket<DefaultEventsMap, ServerToClientEvents, DefaultEventsMap, SocketData>;
